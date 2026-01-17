@@ -18,7 +18,7 @@ Fresher implements the Ralph Loop methodology - an iterative execution model wit
 | Spec | Status | Purpose |
 |------|--------|---------|
 | [loop-executor.md](./loop-executor.md) | **Implemented** | Bash script running Claude Code iterations with streaming and termination control |
-| [prompt-templates.md](./prompt-templates.md) | In Progress | PROMPT.md files for PLANNING and BUILDING modes (stubs exist, need full content) |
+| [prompt-templates.md](./prompt-templates.md) | **Implemented** | PROMPT.md files for PLANNING and BUILDING modes |
 | [project-scaffold.md](./project-scaffold.md) | In Progress | .fresher/ folder structure, templates, and initialization (Phase 1 done) |
 
 ## Verification & Quality
