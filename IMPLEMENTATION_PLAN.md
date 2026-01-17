@@ -90,75 +90,83 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
     - Trap SIGINT/SIGTERM → FINISH_TYPE="manual", trap EXIT → cleanup() runs hooks/finished
     - Check for error exit codes from Claude
 
-- [ ] Implement output streaming and logging (refs: specs/loop-executor.md §4.4, §7 Phase 2) ← NEXT
+- [x] Implement output streaming and logging (refs: specs/loop-executor.md §4.4, §7 Phase 2)
   - Dependencies: basic loop
   - Complexity: medium
   - File: `.fresher/run.sh`
   - Implementation:
-    - Use `--output-format stream-json` with Claude Code
-    - Parse JSON events and display assistant messages in real-time
-    - Log all events to `.fresher/logs/iteration-{n}.log`
+    - Added `--output-format stream-json` to Claude command
+    - Added jq dependency validation
+    - Implemented streaming parser with real-time display of assistant messages
+    - Added support for `content_block_delta` events for streaming text
+    - All events logged to `.fresher/logs/iteration-{n}.log`
+    - Used `set -o pipefail` for proper exit code handling through pipes
 
-- [ ] Add max iterations termination (refs: specs/loop-executor.md §4.2, §7 Phase 3)
+- [x] Add max iterations termination (refs: specs/loop-executor.md §4.2, §7 Phase 3)
   - Dependencies: basic loop
   - Complexity: low
   - File: `.fresher/run.sh`
   - Implementation:
     - Check `$ITERATION -ge $FRESHER_MAX_ITERATIONS` (when non-zero)
-    - Set finish_type to "max_iterations"
+    - Set finish_type to "max_iterations" and exit cleanly
 
-- [ ] Implement smart termination detection (refs: specs/loop-executor.md §4.2, §7 Phase 4)
+- [x] Implement smart termination detection (refs: specs/loop-executor.md §4.2, §7 Phase 4)
   - Dependencies: output streaming
   - Complexity: medium
   - File: `.fresher/run.sh`
   - Implementation:
-    - Parse IMPLEMENTATION_PLAN.md for uncompleted tasks (`- [ ]`)
-    - Check if HEAD moved since iteration started (no_changes detection)
-    - Set appropriate finish_type (complete, no_changes)
+    - Respects `FRESHER_SMART_TERMINATION` config (default: true)
+    - Parses IMPLEMENTATION_PLAN.md for uncompleted tasks (`^\s*-\s*\[\s\]`)
+    - Sets `finish_type="complete"` when all tasks done
+    - Checks if HEAD moved since iteration started
+    - Sets `finish_type="no_changes"` to prevent infinite loops
 
-- [ ] Add signal handling and cleanup (refs: specs/loop-executor.md §4.3, §7 Phase 5)
+- [x] Add signal handling and cleanup (refs: specs/loop-executor.md §4.3, §7 Phase 5)
   - Dependencies: basic loop
   - Complexity: medium
   - File: `.fresher/run.sh`
   - Implementation:
-    - Trap EXIT for cleanup
-    - Write final state to `.fresher/.state`
-    - Ensure hooks/finished always runs
+    - Added `write_state()` function to persist state to `.fresher/.state`
+    - State file includes: ITERATION, LAST_EXIT_CODE, LAST_COMMIT_SHA, STARTED_AT, TOTAL_COMMITS, DURATION, FINISH_TYPE
+    - Called from `cleanup()` before running finished hook
+    - EXIT trap ensures cleanup always runs
+    - `.fresher/.state` already in .gitignore
 
-- [ ] Implement hook timeout wrapping (refs: specs/lifecycle-hooks.md §4.1)
+- [x] Implement hook timeout wrapping (refs: specs/lifecycle-hooks.md §4.1)
   - Dependencies: basic loop
   - Complexity: low
   - File: `.fresher/run.sh`
   - Implementation:
-    - Wrap hook calls in `timeout $FRESHER_HOOK_TIMEOUT`
-    - Handle timeout exit code (124) gracefully
-    - Respect FRESHER_HOOKS_ENABLED flag
+    - Updated `run_hook()` to wrap execution in timeout
+    - Supports GNU `timeout`, macOS `gtimeout`, or graceful fallback
+    - Handles timeout exit code (124) with warning, continues execution
+    - Uses `FRESHER_HOOK_TIMEOUT` config (default: 30s)
 
-## Priority 5: Prompt Templates
+## Priority 5: Prompt Templates ✅
 
-- [ ] Create full PLANNING mode template (refs: specs/prompt-templates.md §3)
+- [x] Create full PLANNING mode template (refs: specs/prompt-templates.md §3)
   - Dependencies: none
   - Complexity: low
   - File: `.fresher/PROMPT.planning.md`
   - Implementation:
-    - Replace stub with full template from spec
-    - Include gap analysis process, constraints, output format
+    - Replaced stub with full template from spec
+    - Includes gap analysis process, constraints, output format
 
-- [ ] Create full BUILDING mode template (refs: specs/prompt-templates.md §4)
+- [x] Create full BUILDING mode template (refs: specs/prompt-templates.md §4)
   - Dependencies: none
   - Complexity: low
   - File: `.fresher/PROMPT.building.md`
   - Implementation:
-    - Replace stub with full template from spec
-    - Include task selection, validation, commit workflow
+    - Replaced stub with full template from spec
+    - Includes task selection, validation, commit workflow
 
-- [ ] Update init.sh to generate full templates (refs: specs/prompt-templates.md §7)
+- [x] Update init.sh to generate full templates (refs: specs/prompt-templates.md §7)
   - Dependencies: full templates created
   - Complexity: low
   - File: `.fresher-internal/init.sh`
   - Implementation:
-    - Update PROMPT.planning.md generation
-    - Update PROMPT.building.md generation
+    - Updated PROMPT.planning.md generation
+    - Updated PROMPT.building.md generation
 
 ---
 

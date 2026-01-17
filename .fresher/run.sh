@@ -73,9 +73,24 @@ run_hook() {
   export FRESHER_DURATION=$(($(date +%s) - STARTED_AT))
   export FRESHER_FINISH_TYPE="$FINISH_TYPE"
 
-  # Run the hook
+  # Run the hook with timeout
   local exit_code=0
-  "$hook_path" || exit_code=$?
+  if command -v timeout &> /dev/null; then
+    # GNU coreutils timeout available
+    timeout "${FRESHER_HOOK_TIMEOUT}s" "$hook_path" || exit_code=$?
+  elif command -v gtimeout &> /dev/null; then
+    # macOS with coreutils installed via Homebrew
+    gtimeout "${FRESHER_HOOK_TIMEOUT}s" "$hook_path" || exit_code=$?
+  else
+    # No timeout command available, run without timeout
+    "$hook_path" || exit_code=$?
+  fi
+
+  # Handle timeout (exit code 124)
+  if [[ $exit_code -eq 124 ]]; then
+    log "Warning: Hook '$hook_name' timed out after ${FRESHER_HOOK_TIMEOUT}s"
+    return 0  # Continue despite timeout
+  fi
 
   return $exit_code
 }
@@ -90,6 +105,28 @@ count_commits_since() {
   git rev-list --count "$since_sha"..HEAD 2>/dev/null || echo "0"
 }
 
+# Write current state to .fresher/.state file
+write_state() {
+  local state_file="$SCRIPT_DIR/.state"
+  local current_sha
+  current_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+  local duration=$(($(date +%s) - STARTED_AT))
+  local started_iso
+  started_iso=$(date -r "$STARTED_AT" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -d "@$STARTED_AT" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+
+  cat > "$state_file" << EOF
+# Fresher state file - auto-generated
+# Last updated: $(date +%Y-%m-%dT%H:%M:%SZ)
+ITERATION=$ITERATION
+LAST_EXIT_CODE=$LAST_EXIT_CODE
+LAST_COMMIT_SHA=$current_sha
+STARTED_AT=$started_iso
+TOTAL_COMMITS=$COMMITS_MADE
+DURATION=$duration
+FINISH_TYPE=$FINISH_TYPE
+EOF
+}
+
 #──────────────────────────────────────────────────────────────────
 # Signal Handling
 #──────────────────────────────────────────────────────────────────
@@ -102,11 +139,14 @@ cleanup() {
     FINISH_TYPE="manual"
   fi
 
-  # Update final state
+  # Update final state for hooks
   export FRESHER_TOTAL_ITERATIONS="$ITERATION"
   export FRESHER_TOTAL_COMMITS="$COMMITS_MADE"
   export FRESHER_DURATION=$(($(date +%s) - STARTED_AT))
   export FRESHER_FINISH_TYPE="$FINISH_TYPE"
+
+  # Write final state to file
+  write_state
 
   # Run finished hook
   run_hook "finished" || true
@@ -139,6 +179,21 @@ fi
 if ! command -v claude &> /dev/null; then
   error "claude command not found. Install Claude Code CLI first."
   exit 1
+fi
+
+# Check jq command exists (required for stream-json parsing)
+if ! command -v jq &> /dev/null; then
+  error "jq command not found. Install jq for JSON parsing."
+  exit 1
+fi
+
+#──────────────────────────────────────────────────────────────────
+# Log Directory Setup
+#──────────────────────────────────────────────────────────────────
+
+# Ensure log directory exists
+if [[ ! -d "$FRESHER_LOG_DIR" ]]; then
+  mkdir -p "$FRESHER_LOG_DIR"
 fi
 
 #──────────────────────────────────────────────────────────────────
@@ -212,12 +267,62 @@ while true; do
   # Set model
   CLAUDE_CMD+=(--model "$FRESHER_MODEL")
 
-  # Invoke Claude Code
+  # Add stream-json output format for parsing
+  CLAUDE_CMD+=(--output-format stream-json)
+
+  # Set up iteration log file
+  LOG_FILE="$FRESHER_LOG_DIR/iteration-${ITERATION}.log"
+
+  # Invoke Claude Code with streaming
   log "Invoking Claude Code..."
+  log "Log file: $LOG_FILE"
   echo ""
 
+  # Use pipefail to capture Claude's exit code through the pipe
+  set -o pipefail
+
   LAST_EXIT_CODE=0
-  "${CLAUDE_CMD[@]}" || LAST_EXIT_CODE=$?
+  "${CLAUDE_CMD[@]}" 2>&1 | while IFS= read -r line; do
+    # Write every line to log file
+    echo "$line" >> "$LOG_FILE"
+
+    # Try to parse as JSON
+    event_type=$(echo "$line" | jq -r '.type // empty' 2>/dev/null)
+
+    case "$event_type" in
+      "assistant")
+        # Extract and display assistant message content
+        content=$(echo "$line" | jq -r '.message.content[]? | select(.type == "text") | .text // empty' 2>/dev/null)
+        if [[ -n "$content" ]]; then
+          echo "$content"
+        fi
+        ;;
+      "content_block_delta")
+        # Stream text deltas in real-time
+        delta=$(echo "$line" | jq -r '.delta.text // empty' 2>/dev/null)
+        if [[ -n "$delta" ]]; then
+          printf "%s" "$delta"
+        fi
+        ;;
+      "content_block_stop")
+        # End of a content block - add newline if needed
+        ;;
+      "result")
+        # Final result - could be used for termination analysis
+        # For now, just log it (already written to log file above)
+        ;;
+      "")
+        # Not JSON or empty type - might be stderr or plain text
+        # Display as-is if it's not empty
+        if [[ -n "$line" ]]; then
+          echo "$line"
+        fi
+        ;;
+    esac
+  done || LAST_EXIT_CODE=$?
+
+  # Restore default behavior
+  set +o pipefail
 
   echo ""
 
@@ -241,6 +346,32 @@ while true; do
     exit $LAST_EXIT_CODE
   fi
 
+  # Check max iterations limit
+  if [[ "$FRESHER_MAX_ITERATIONS" -gt 0 && "$ITERATION" -ge "$FRESHER_MAX_ITERATIONS" ]]; then
+    FINISH_TYPE="max_iterations"
+    log "Reached max iterations limit ($FRESHER_MAX_ITERATIONS)"
+    exit 0
+  fi
+
+  # Smart termination detection
+  if [[ "$FRESHER_SMART_TERMINATION" == "true" ]]; then
+    # Check for completion: no pending tasks in IMPLEMENTATION_PLAN.md
+    if [[ -f "$PROJECT_DIR/IMPLEMENTATION_PLAN.md" ]]; then
+      pending_tasks=$(grep -cE '^\s*-\s*\[\s\]' "$PROJECT_DIR/IMPLEMENTATION_PLAN.md" 2>/dev/null || echo "0")
+      if [[ "$pending_tasks" -eq 0 ]]; then
+        FINISH_TYPE="complete"
+        log "All tasks in IMPLEMENTATION_PLAN.md are complete!"
+        exit 0
+      fi
+    fi
+
+    # Check for no changes: HEAD didn't move this iteration
+    if [[ -n "$ITERATION_SHA" && -n "$CURRENT_SHA" && "$ITERATION_SHA" == "$CURRENT_SHA" ]]; then
+      FINISH_TYPE="no_changes"
+      log "No commits made this iteration - stopping to avoid infinite loop"
+      exit 0
+    fi
+  fi
+
   # Continue to next iteration
-  # (Termination conditions will be added in later phases)
 done

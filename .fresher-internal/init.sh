@@ -384,7 +384,7 @@ EOF
 echo -e "${GREEN}✓${NC} Created AGENTS.md"
 
 #──────────────────────────────────────────────────────────────────
-# Generate stub prompt templates
+# Generate prompt templates
 #──────────────────────────────────────────────────────────────────
 cat > .fresher/PROMPT.planning.md << 'EOF'
 # Planning Mode
@@ -405,7 +405,59 @@ You are analyzing specifications against the current codebase to create an imple
 - DO NOT modify source code
 - ONLY output the implementation plan
 
-<!-- Full template content will be added in prompt-templates phase -->
+## Process
+
+### Step 1: Understand Requirements
+Use subagents to read and summarize each spec file in `specs/`.
+
+### Step 2: Analyze Current State
+Use subagents to explore `src/` (or equivalent) and document:
+- What features are implemented
+- What patterns are in use
+- What's partially complete
+
+### Step 3: Gap Analysis
+For each requirement in specs, determine:
+- [ ] Not started
+- [ ] Partially implemented
+- [ ] Fully implemented
+
+### Step 4: Create Plan
+Write `IMPLEMENTATION_PLAN.md` with:
+
+```markdown
+# Implementation Plan
+
+Generated: {timestamp}
+Based on: specs/*.md
+
+## Priority 1: Critical Path
+- [ ] Task description (refs: specs/foo.md)
+  - Dependencies: none
+  - Complexity: low/medium/high
+
+## Priority 2: Core Features
+- [ ] Task description (refs: specs/bar.md)
+  - Dependencies: Priority 1 tasks
+  - Complexity: medium
+
+## Priority 3: Enhancements
+...
+```
+
+## Output Format
+
+Your final output should confirm:
+1. Which specs were analyzed
+2. How many gaps were identified
+3. That IMPLEMENTATION_PLAN.md was created/updated
+
+## Important
+
+- Assume specs describe INTENT, not reality
+- Always verify against actual code before concluding something is implemented
+- Tasks should be small enough to complete in one building iteration
+- Include spec references for traceability
 EOF
 
 cat > .fresher/PROMPT.building.md << 'EOF'
@@ -429,10 +481,59 @@ You are implementing tasks from the existing implementation plan.
 - Must pass all validation before committing
 - Update AGENTS.md if you discover operational knowledge
 
-<!-- Full template content will be added in prompt-templates phase -->
+## Process
+
+### Step 1: Read Plan
+Open `IMPLEMENTATION_PLAN.md` and identify the first unchecked task (`- [ ]`).
+
+### Step 2: Investigate
+Before implementing, use subagents to:
+- Read the referenced spec for requirements
+- Search for existing related code
+- Understand current patterns
+
+**CRITICAL**: Never assume something isn't implemented. Always check first.
+
+### Step 3: Implement
+Write the code to complete the task. Follow patterns in AGENTS.md.
+
+### Step 4: Validate
+Run the project's validation commands:
+- Tests: `{test_command from AGENTS.md}`
+- Build: `{build_command from AGENTS.md}`
+- Lint: `{lint_command from AGENTS.md}`
+
+If validation fails:
+- Fix the issues
+- Re-run validation
+- Do not proceed until passing
+
+### Step 5: Update Plan
+In `IMPLEMENTATION_PLAN.md`:
+- Change `- [ ]` to `- [x]` for completed task
+- Add notes about any discoveries or issues
+- Add new tasks if scope expanded
+
+### Step 6: Commit
+Create a commit with:
+- Clear message describing the change
+- Reference to the spec if applicable
+
+## Output Format
+
+Your final output should confirm:
+1. Which task was implemented
+2. Validation results (pass/fail)
+3. Commit SHA (if successful)
+
+## Important
+
+- Quality over speed - one well-implemented task is better than multiple broken ones
+- If stuck on a task, document blockers and move to next
+- Update AGENTS.md with any commands, patterns, or knowledge discovered
 EOF
 
-echo -e "${GREEN}✓${NC} Created PROMPT templates (stubs)"
+echo -e "${GREEN}✓${NC} Created PROMPT templates"
 
 #──────────────────────────────────────────────────────────────────
 # Generate hook scripts

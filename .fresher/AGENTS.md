@@ -4,17 +4,17 @@
 
 ### Testing
 ```bash
-
+bun test
 ```
 
 ### Building
 ```bash
-
+bun run build
 ```
 
 ### Linting
 ```bash
-
+bun run lint
 ```
 
 ## Code Patterns
