@@ -25,33 +25,34 @@ Based on: specs/project-scaffold.md
   - Complexity: low
   - Notes: Add .fresher/logs/ to gitignore, inject specs section into CLAUDE.md
 
-## Priority 2: Interactive Setup ← NEXT
+## Priority 2: Interactive Setup ✅
 
-- [ ] Add remaining init command flags (refs: specs/project-scaffold.md §3.2)
+- [x] Add remaining init command flags (refs: specs/project-scaffold.md §3.2)
   - Dependencies: none
   - Complexity: low
   - File: `.fresher-internal/init.sh`
-  - Flags to add:
+  - Flags added:
     - `--interactive, -i` - Enable interactive wizard mode
     - `--no-hooks` - Skip creating hook scripts
     - `--no-docker` - Skip Docker-related config entries
-  - Already implemented: `--force`, `--project-type`
+  - Previously implemented: `--force`, `--project-type`
 
-- [ ] Implement interactive wizard (refs: specs/project-scaffold.md §4.2)
+- [x] Implement interactive wizard (refs: specs/project-scaffold.md §4.2)
   - Dependencies: --interactive flag
   - Complexity: medium
   - File: `.fresher-internal/init.sh`
-  - Prompts to implement (with detected defaults):
-    - Test command (e.g., `npm test`)
-    - Build command (e.g., `npm run build`)
-    - Lint command (e.g., `npm run lint`)
+  - Prompts implemented (with detected defaults):
+    - Test command (e.g., `bun test`)
+    - Build command (e.g., `bun run build`)
+    - Lint command (e.g., `bun run lint`)
     - Source directory (e.g., `src/`)
     - Enable Docker isolation? (y/N)
     - Max iterations (0=unlimited)
-  - Use `read -p` for prompts with defaults in brackets
-  - Show detected project type before prompts
+  - Uses `read -p` for prompts with defaults in brackets
+  - Shows detected project type before prompts
+  - Note: nodejs defaults changed from npm to bun
 
-## Priority 3: Polish
+## Priority 3: Polish ← NEXT
 
 - [ ] Add timeout to hook execution (refs: specs/lifecycle-hooks.md §4.1)
   - Dependencies: none

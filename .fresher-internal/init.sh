@@ -17,12 +17,27 @@ NC='\033[0m' # No Color
 # Parse arguments
 #──────────────────────────────────────────────────────────────────
 FORCE=false
+INTERACTIVE=false
+NO_HOOKS=false
+NO_DOCKER=false
 PROJECT_TYPE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force|-f)
       FORCE=true
+      shift
+      ;;
+    --interactive|-i)
+      INTERACTIVE=true
+      shift
+      ;;
+    --no-hooks)
+      NO_HOOKS=true
+      shift
+      ;;
+    --no-docker)
+      NO_DOCKER=true
       shift
       ;;
     --project-type)
@@ -34,7 +49,10 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: fresher init [options]"
       echo ""
       echo "Options:"
+      echo "  --interactive, -i     Run interactive setup wizard"
       echo "  --force, -f           Overwrite existing .fresher/ without prompting"
+      echo "  --no-hooks            Skip creating hook scripts"
+      echo "  --no-docker           Skip Docker-related config entries"
       echo "  --project-type TYPE   Override auto-detected project type"
       echo "  --help, -h            Show this help message"
       exit 0
@@ -97,8 +115,7 @@ detect_project_type() {
 get_test_command() {
   local type="$1"
   case "$type" in
-    nodejs) echo "npm test" ;;
-    bun) echo "bun test" ;;
+    nodejs|bun) echo "bun test" ;;
     rust) echo "cargo test" ;;
     go) echo "go test ./..." ;;
     python) echo "pytest" ;;
@@ -113,8 +130,7 @@ get_test_command() {
 get_build_command() {
   local type="$1"
   case "$type" in
-    nodejs) echo "npm run build" ;;
-    bun) echo "bun run build" ;;
+    nodejs|bun) echo "bun run build" ;;
     rust) echo "cargo build" ;;
     go) echo "go build ./..." ;;
     python) echo "python -m build" ;;
@@ -129,8 +145,7 @@ get_build_command() {
 get_lint_command() {
   local type="$1"
   case "$type" in
-    nodejs) echo "npm run lint" ;;
-    bun) echo "bun run lint" ;;
+    nodejs|bun) echo "bun run lint" ;;
     rust) echo "cargo clippy" ;;
     go) echo "golangci-lint run" ;;
     python) echo "ruff check" ;;
@@ -163,6 +178,55 @@ SRC_DIR=$(get_src_dir "$DETECTED_TYPE")
 PROJECT_NAME=$(basename "$(pwd)")
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+# Default values for Docker and max iterations
+USE_DOCKER=false
+MAX_ITERATIONS=0
+
+#──────────────────────────────────────────────────────────────────
+# Interactive wizard
+#──────────────────────────────────────────────────────────────────
+if [[ "$INTERACTIVE" == "true" ]]; then
+  echo ""
+  echo -e "${BLUE}╔════════════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${BLUE}║                    Fresher Setup Wizard                        ║${NC}"
+  echo -e "${BLUE}╚════════════════════════════════════════════════════════════════╝${NC}"
+  echo ""
+  echo -e "Detected project type: ${GREEN}$DETECTED_TYPE${NC}"
+  echo ""
+  echo "Press Enter to accept the default value shown in brackets."
+  echo ""
+
+  # Test command
+  read -p "? Test command [$TEST_CMD]: " input
+  [[ -n "$input" ]] && TEST_CMD="$input"
+
+  # Build command
+  read -p "? Build command [$BUILD_CMD]: " input
+  [[ -n "$input" ]] && BUILD_CMD="$input"
+
+  # Lint command
+  read -p "? Lint command [$LINT_CMD]: " input
+  [[ -n "$input" ]] && LINT_CMD="$input"
+
+  # Source directory
+  read -p "? Source directory [$SRC_DIR]: " input
+  [[ -n "$input" ]] && SRC_DIR="$input"
+
+  # Docker isolation
+  if [[ "$NO_DOCKER" != "true" ]]; then
+    read -p "? Enable Docker isolation? [y/N]: " input
+    if [[ "$input" =~ ^[Yy]$ ]]; then
+      USE_DOCKER=true
+    fi
+  fi
+
+  # Max iterations
+  read -p "? Max iterations (0=unlimited) [$MAX_ITERATIONS]: " input
+  [[ -n "$input" ]] && MAX_ITERATIONS="$input"
+
+  echo ""
+fi
+
 echo -e "${BLUE}Initializing Fresher...${NC}"
 echo "Project: $PROJECT_NAME"
 echo "Detected type: $DETECTED_TYPE"
@@ -173,7 +237,9 @@ echo ""
 #──────────────────────────────────────────────────────────────────
 echo "Creating .fresher/ directory structure..."
 
-mkdir -p .fresher/hooks
+if [[ "$NO_HOOKS" != "true" ]]; then
+  mkdir -p .fresher/hooks
+fi
 mkdir -p .fresher/lib
 mkdir -p .fresher/logs
 
@@ -194,7 +260,7 @@ export FRESHER_MODE="\${FRESHER_MODE:-planning}"
 #──────────────────────────────────────────────────────────────────
 # Termination Settings
 #──────────────────────────────────────────────────────────────────
-export FRESHER_MAX_ITERATIONS="\${FRESHER_MAX_ITERATIONS:-0}"
+export FRESHER_MAX_ITERATIONS="\${FRESHER_MAX_ITERATIONS:-$MAX_ITERATIONS}"
 export FRESHER_SMART_TERMINATION="\${FRESHER_SMART_TERMINATION:-true}"
 
 #──────────────────────────────────────────────────────────────────
@@ -217,13 +283,19 @@ export FRESHER_LINT_CMD="\${FRESHER_LINT_CMD:-$LINT_CMD}"
 export FRESHER_LOG_DIR="\${FRESHER_LOG_DIR:-.fresher/logs}"
 export FRESHER_SPEC_DIR="\${FRESHER_SPEC_DIR:-specs}"
 export FRESHER_SRC_DIR="\${FRESHER_SRC_DIR:-$SRC_DIR}"
+EOF
+
+# Add Docker config section unless --no-docker was specified
+if [[ "$NO_DOCKER" != "true" ]]; then
+  cat >> .fresher/config.sh << EOF
 
 #──────────────────────────────────────────────────────────────────
 # Docker (optional)
 #──────────────────────────────────────────────────────────────────
-export FRESHER_USE_DOCKER="\${FRESHER_USE_DOCKER:-false}"
+export FRESHER_USE_DOCKER="\${FRESHER_USE_DOCKER:-$USE_DOCKER}"
 export FRESHER_DOCKER_IMAGE="\${FRESHER_DOCKER_IMAGE:-fresher:local}"
 EOF
+fi
 
 echo -e "${GREEN}✓${NC} Created config.sh"
 
@@ -359,7 +431,8 @@ echo -e "${GREEN}✓${NC} Created PROMPT templates (stubs)"
 #──────────────────────────────────────────────────────────────────
 # Generate hook scripts
 #──────────────────────────────────────────────────────────────────
-cat > .fresher/hooks/started << 'EOF'
+if [[ "$NO_HOOKS" != "true" ]]; then
+  cat > .fresher/hooks/started << 'EOF'
 #!/bin/bash
 # .fresher/hooks/started
 # Runs once when the Fresher loop begins
@@ -370,9 +443,9 @@ echo "Max iterations: ${FRESHER_MAX_ITERATIONS:-unlimited}"
 
 exit 0
 EOF
-chmod +x .fresher/hooks/started
+  chmod +x .fresher/hooks/started
 
-cat > .fresher/hooks/next_iteration << 'EOF'
+  cat > .fresher/hooks/next_iteration << 'EOF'
 #!/bin/bash
 # .fresher/hooks/next_iteration
 # Runs before each iteration
@@ -381,9 +454,9 @@ echo "Starting iteration ${FRESHER_ITERATION:-1}"
 
 exit 0
 EOF
-chmod +x .fresher/hooks/next_iteration
+  chmod +x .fresher/hooks/next_iteration
 
-cat > .fresher/hooks/finished << 'EOF'
+  cat > .fresher/hooks/finished << 'EOF'
 #!/bin/bash
 # .fresher/hooks/finished
 # Runs when the loop ends
@@ -394,9 +467,10 @@ echo "Total iterations: ${FRESHER_TOTAL_ITERATIONS:-0}"
 
 exit 0
 EOF
-chmod +x .fresher/hooks/finished
+  chmod +x .fresher/hooks/finished
 
-echo -e "${GREEN}✓${NC} Created hook scripts"
+  echo -e "${GREEN}✓${NC} Created hook scripts"
+fi
 
 #──────────────────────────────────────────────────────────────────
 # Create .gitkeep files
@@ -536,10 +610,12 @@ echo "  ├── config.sh           (configuration)"
 echo "  ├── PROMPT.planning.md  (planning mode template)"
 echo "  ├── PROMPT.building.md  (building mode template)"
 echo "  ├── AGENTS.md           (project knowledge)"
-echo "  ├── hooks/"
-echo "  │   ├── started"
-echo "  │   ├── next_iteration"
-echo "  │   └── finished"
+if [[ "$NO_HOOKS" != "true" ]]; then
+  echo "  ├── hooks/"
+  echo "  │   ├── started"
+  echo "  │   ├── next_iteration"
+  echo "  │   └── finished"
+fi
 echo "  ├── lib/"
 echo "  └── logs/"
 echo ""
