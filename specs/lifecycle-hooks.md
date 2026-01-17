@@ -1,6 +1,6 @@
 # Lifecycle Hooks Specification
 
-**Status:** Planned
+**Status:** In Progress (basic hooks exist)
 **Version:** 1.0
 **Last Updated:** 2025-01-17
 

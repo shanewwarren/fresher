@@ -17,9 +17,9 @@ Fresher implements the Ralph Loop methodology - an iterative execution model wit
 
 | Spec | Status | Purpose |
 |------|--------|---------|
-| [loop-executor.md](./loop-executor.md) | Planned | Bash script running Claude Code iterations with streaming and termination control |
-| [prompt-templates.md](./prompt-templates.md) | Planned | PROMPT.md files for PLANNING and BUILDING modes |
-| [project-scaffold.md](./project-scaffold.md) | Planned | .fresher/ folder structure, templates, and initialization |
+| [loop-executor.md](./loop-executor.md) | **Implemented** | Bash script running Claude Code iterations with streaming and termination control |
+| [prompt-templates.md](./prompt-templates.md) | In Progress | PROMPT.md files for PLANNING and BUILDING modes (stubs exist, need full content) |
+| [project-scaffold.md](./project-scaffold.md) | In Progress | .fresher/ folder structure, templates, and initialization (Phase 1 done) |
 
 ## Verification & Quality
 
@@ -32,7 +32,7 @@ Fresher implements the Ralph Loop methodology - an iterative execution model wit
 
 | Spec | Status | Purpose |
 |------|--------|---------|
-| [lifecycle-hooks.md](./lifecycle-hooks.md) | Planned | Event hooks for started, next_iteration, finished |
+| [lifecycle-hooks.md](./lifecycle-hooks.md) | In Progress | Event hooks for started, next_iteration, finished (basic hooks exist) |
 | [docker-isolation.md](./docker-isolation.md) | Planned | Container-based execution for safety |
 
 ---

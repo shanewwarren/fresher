@@ -1,6 +1,6 @@
 # Prompt Templates Specification
 
-**Status:** Planned
+**Status:** In Progress (stubs exist)
 **Version:** 1.0
 **Last Updated:** 2025-01-17
 
