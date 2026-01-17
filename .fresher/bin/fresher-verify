@@ -1,0 +1,204 @@
+#!/bin/bash
+# Fresher Plan Verification CLI
+# Validates that IMPLEMENTATION_PLAN.md aligns with specifications
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FRESHER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_DIR="$(cd "$FRESHER_DIR/.." && pwd)"
+
+# Source the verification library
+source "$FRESHER_DIR/lib/verify.sh"
+
+#──────────────────────────────────────────────────────────────────
+# Default Configuration
+#──────────────────────────────────────────────────────────────────
+
+SPEC_DIR="$PROJECT_DIR/specs"
+PLAN_FILE="$PROJECT_DIR/IMPLEMENTATION_PLAN.md"
+SRC_DIRS=".fresher .fresher-internal src lib"
+OUTPUT_FILE="$PROJECT_DIR/VERIFICATION_REPORT.md"
+OUTPUT_FORMAT="markdown"
+QUIET=false
+STRICT=false
+
+#──────────────────────────────────────────────────────────────────
+# Help
+#──────────────────────────────────────────────────────────────────
+
+show_help() {
+  cat << EOF
+Usage: fresher verify [options]
+
+Validate that IMPLEMENTATION_PLAN.md accurately reflects the gap between
+specifications and the current codebase.
+
+Options:
+  --spec-dir DIR       Specification directory (default: specs/)
+  --plan-file FILE     Plan file path (default: IMPLEMENTATION_PLAN.md)
+  --src-dir DIR        Source directory for evidence (default: src/)
+  --output FILE        Report output file (default: VERIFICATION_REPORT.md)
+  --format FORMAT      Output format: markdown|json (default: markdown)
+  --quiet, -q          Only output summary metrics
+  --strict             Exit with error (1) if any issues found
+  --help, -h           Show this help message
+
+Exit Codes:
+  0  Verification passed, no issues
+  1  Verification completed, issues found (with --strict)
+  2  Verification failed (missing files, parse errors)
+
+Examples:
+  fresher verify                    # Run verification with defaults
+  fresher verify --quiet            # Only show summary
+  fresher verify --strict           # Exit 1 if issues found
+  fresher verify --format json      # Output as JSON
+EOF
+}
+
+#──────────────────────────────────────────────────────────────────
+# Parse Arguments
+#──────────────────────────────────────────────────────────────────
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --spec-dir)
+      SPEC_DIR="$2"
+      shift 2
+      ;;
+    --plan-file)
+      PLAN_FILE="$2"
+      shift 2
+      ;;
+    --src-dir)
+      SRC_DIRS="$2"
+      shift 2
+      ;;
+    --output)
+      OUTPUT_FILE="$2"
+      shift 2
+      ;;
+    --format)
+      OUTPUT_FORMAT="$2"
+      shift 2
+      ;;
+    --quiet|-q)
+      QUIET=true
+      shift
+      ;;
+    --strict)
+      STRICT=true
+      shift
+      ;;
+    --help|-h)
+      show_help
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      echo "Use --help for usage information" >&2
+      exit 2
+      ;;
+  esac
+done
+
+#──────────────────────────────────────────────────────────────────
+# Validation
+#──────────────────────────────────────────────────────────────────
+
+if [[ ! -d "$SPEC_DIR" ]]; then
+  echo "Error: Spec directory not found: $SPEC_DIR" >&2
+  exit 2
+fi
+
+if [[ ! -f "$PLAN_FILE" ]]; then
+  echo "Error: Plan file not found: $PLAN_FILE" >&2
+  exit 2
+fi
+
+#──────────────────────────────────────────────────────────────────
+# Run Verification
+#──────────────────────────────────────────────────────────────────
+
+# Get summary for checking issues
+summary=$(get_verification_summary "$SPEC_DIR" "$PLAN_FILE")
+orphan_tasks=$(echo "$summary" | grep '^orphan_tasks:' | cut -d: -f2)
+pending_tasks=$(echo "$summary" | grep '^pending_tasks:' | cut -d: -f2)
+covered_specs=$(echo "$summary" | grep '^covered_specs:' | cut -d: -f2)
+total_specs=$(echo "$summary" | grep '^total_specs:' | cut -d: -f2)
+
+# Count uncovered specs (excluding README)
+uncovered_count=$((total_specs - covered_specs - 1))  # -1 for README
+[[ $uncovered_count -lt 0 ]] && uncovered_count=0
+
+# Determine if there are issues
+has_issues=false
+if [[ "$orphan_tasks" -gt 0 ]] || [[ "$uncovered_count" -gt 0 ]]; then
+  has_issues=true
+fi
+
+# Output based on format and quiet mode
+if [[ "$QUIET" == "true" ]]; then
+  # Quiet mode: just summary metrics
+  if [[ "$OUTPUT_FORMAT" == "json" ]]; then
+    cat << EOF
+{
+  "total_requirements": $(echo "$summary" | grep '^total_requirements:' | cut -d: -f2),
+  "total_tasks": $(echo "$summary" | grep '^total_tasks:' | cut -d: -f2),
+  "completed_tasks": $(echo "$summary" | grep '^completed_tasks:' | cut -d: -f2),
+  "pending_tasks": $pending_tasks,
+  "orphan_tasks": $orphan_tasks,
+  "total_specs": $total_specs,
+  "covered_specs": $covered_specs,
+  "uncovered_specs": $uncovered_count,
+  "has_issues": $has_issues
+}
+EOF
+  else
+    echo "Requirements: $(echo "$summary" | grep '^total_requirements:' | cut -d: -f2)"
+    echo "Tasks: $(echo "$summary" | grep '^total_tasks:' | cut -d: -f2) ($(echo "$summary" | grep '^completed_tasks:' | cut -d: -f2) completed, $pending_tasks pending)"
+    echo "Orphan tasks: $orphan_tasks"
+    echo "Specs: $total_specs ($covered_specs covered, $uncovered_count uncovered)"
+    if [[ "$has_issues" == "true" ]]; then
+      echo "Status: ISSUES FOUND"
+    else
+      echo "Status: OK"
+    fi
+  fi
+else
+  # Full report
+  if [[ "$OUTPUT_FORMAT" == "json" ]]; then
+    # JSON format - minimal implementation
+    cat << EOF
+{
+  "generated": "$(date +%Y-%m-%dT%H:%M:%SZ)",
+  "summary": {
+    "total_requirements": $(echo "$summary" | grep '^total_requirements:' | cut -d: -f2),
+    "total_tasks": $(echo "$summary" | grep '^total_tasks:' | cut -d: -f2),
+    "completed_tasks": $(echo "$summary" | grep '^completed_tasks:' | cut -d: -f2),
+    "pending_tasks": $pending_tasks,
+    "orphan_tasks": $orphan_tasks,
+    "total_specs": $total_specs,
+    "covered_specs": $covered_specs
+  },
+  "has_issues": $has_issues
+}
+EOF
+  else
+    # Markdown format - generate full report
+    generate_report "$SPEC_DIR" "$PLAN_FILE" "$SRC_DIRS" | tee "$OUTPUT_FILE"
+    echo ""
+    echo "Report written to: $OUTPUT_FILE"
+  fi
+fi
+
+#──────────────────────────────────────────────────────────────────
+# Exit Code
+#──────────────────────────────────────────────────────────────────
+
+if [[ "$STRICT" == "true" && "$has_issues" == "true" ]]; then
+  exit 1
+fi
+
+exit 0

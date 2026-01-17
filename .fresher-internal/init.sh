@@ -816,12 +816,210 @@ EOF
 fi
 
 #──────────────────────────────────────────────────────────────────
-# Create .gitkeep files
+# Create .gitkeep files and bin directory
 #──────────────────────────────────────────────────────────────────
 touch .fresher/lib/.gitkeep
 touch .fresher/logs/.gitkeep
+mkdir -p .fresher/bin
 
-echo -e "${GREEN}✓${NC} Created lib/ and logs/ directories"
+echo -e "${GREEN}✓${NC} Created lib/, logs/, and bin/ directories"
+
+#──────────────────────────────────────────────────────────────────
+# Generate verify.sh library
+#──────────────────────────────────────────────────────────────────
+cat > .fresher/lib/verify.sh << 'VERIFY_LIB_EOF'
+#!/bin/bash
+# Fresher Plan Verification Library
+# Functions for verifying plan coverage against specs
+
+set -e
+
+VERIFY_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERIFY_PROJECT_DIR="$(cd "$VERIFY_SCRIPT_DIR/../.." && pwd)"
+
+verify_log() { echo "[verify] $*"; }
+verify_error() { echo "[verify] ERROR: $*" >&2; }
+
+# Extract requirements from spec files
+extract_requirements() {
+  local spec_dir="${1:-$VERIFY_PROJECT_DIR/specs}"
+  [[ ! -d "$spec_dir" ]] && { verify_error "Spec directory not found: $spec_dir"; return 1; }
+  find "$spec_dir" -name "*.md" -type f | sort | while read -r spec_file; do
+    local spec_name=$(basename "$spec_file" .md)
+    grep -nE '^### ' "$spec_file" 2>/dev/null | while IFS=: read -r ln line; do
+      echo "${spec_name}|section|${ln}|$(echo "$line" | sed 's/^### *//')"
+    done
+    grep -nE '^\s*-\s*\[[ xX]\]' "$spec_file" 2>/dev/null | while IFS=: read -r ln line; do
+      local status="pending"; [[ $line =~ \[[xX]\] ]] && status="completed"
+      echo "${spec_name}|task|${status}|${ln}|$(echo "$line" | sed 's/^[[:space:]]*-[[:space:]]*\[[xX ]\][[:space:]]*//')"
+    done
+  done
+}
+
+# Parse tasks from plan
+parse_plan() {
+  local plan_file="${1:-$VERIFY_PROJECT_DIR/IMPLEMENTATION_PLAN.md}"
+  [[ ! -f "$plan_file" ]] && { verify_error "Plan file not found: $plan_file"; return 1; }
+  grep -nE '^\s*-\s*\[[ xX]\]' "$plan_file" 2>/dev/null | while IFS=: read -r ln line; do
+    local status="pending"; [[ $line =~ \[[xX]\] ]] && status="completed"
+    local desc=$(echo "$line" | sed 's/^[[:space:]]*-[[:space:]]*\[[xX ]\][[:space:]]*//' | sed 's/[[:space:]]*(refs:[^)]*)$//')
+    local spec_ref="none"
+    [[ $line =~ refs:[[:space:]]*([a-zA-Z0-9_/.-]+\.md) ]] && spec_ref=$(echo "${BASH_REMATCH[1]}" | sed 's|^specs/||')
+    echo "${status}|${spec_ref}|${ln}|${desc}"
+  done
+}
+
+list_specs() {
+  local spec_dir="${1:-$VERIFY_PROJECT_DIR/specs}"
+  [[ ! -d "$spec_dir" ]] && return 1
+  find "$spec_dir" -name "*.md" -type f | sort | while read -r f; do basename "$f" .md; done
+}
+
+get_spec_requirements() { extract_requirements "${2:-$VERIFY_PROJECT_DIR/specs}" | grep "^${1}|"; }
+get_tasks_for_spec() { parse_plan "${2:-$VERIFY_PROJECT_DIR/IMPLEMENTATION_PLAN.md}" | grep "|${1%.md}.md|" || true; }
+get_orphan_tasks() { parse_plan "${1:-$VERIFY_PROJECT_DIR/IMPLEMENTATION_PLAN.md}" | grep '|none|' || true; }
+
+count_requirements() {
+  local reqs=$(extract_requirements "${1:-$VERIFY_PROJECT_DIR/specs}")
+  echo "total:$(echo "$reqs" | grep -c . 2>/dev/null || echo 0)"
+  echo "sections:$(echo "$reqs" | grep -c '|section|' 2>/dev/null || echo 0)"
+}
+
+count_plan_tasks() {
+  local tasks=$(parse_plan "${1:-$VERIFY_PROJECT_DIR/IMPLEMENTATION_PLAN.md}") || return 1
+  local total=$(echo "$tasks" | grep -c . 2>/dev/null) || total=0
+  local pending=$(echo "$tasks" | grep -c '^pending|' 2>/dev/null) || pending=0
+  local completed=$(echo "$tasks" | grep -c '^completed|' 2>/dev/null) || completed=0
+  local orphans=$(echo "$tasks" | grep -c '|none|' 2>/dev/null) || orphans=0
+  echo "total:$total"; echo "pending:$pending"; echo "completed:$completed"; echo "orphans:$orphans"
+}
+
+analyze_coverage() {
+  local spec_dir="${1:-$VERIFY_PROJECT_DIR/specs}"
+  local plan_file="${2:-$VERIFY_PROJECT_DIR/IMPLEMENTATION_PLAN.md}"
+  list_specs "$spec_dir" | while read -r spec_name; do
+    local req_count=$(get_spec_requirements "$spec_name" "$spec_dir" | grep -c '|section|' 2>/dev/null) || req_count=0
+    local task_count=$(get_tasks_for_spec "$spec_name" "$plan_file" | grep -c . 2>/dev/null) || task_count=0
+    local coverage=0; [[ $req_count -gt 0 ]] && coverage=$((task_count * 100 / req_count))
+    [[ $coverage -gt 100 ]] && coverage=100
+    echo "${spec_name}|${req_count}|${task_count}|${coverage}"
+  done
+}
+
+find_uncovered_specs() {
+  analyze_coverage "${1:-$VERIFY_PROJECT_DIR/specs}" "${2:-$VERIFY_PROJECT_DIR/IMPLEMENTATION_PLAN.md}" | while IFS='|' read -r spec req task cov; do
+    [[ "$task" -eq 0 && "$req" -gt 0 ]] && echo "$spec"
+  done
+}
+
+get_verification_summary() {
+  local spec_dir="${1:-$VERIFY_PROJECT_DIR/specs}"
+  local plan_file="${2:-$VERIFY_PROJECT_DIR/IMPLEMENTATION_PLAN.md}"
+  local req_stats=$(count_requirements "$spec_dir")
+  local task_stats=$(count_plan_tasks "$plan_file")
+  echo "$req_stats" | grep '^total:' | sed 's/^total:/total_requirements:/'
+  echo "$req_stats" | grep '^sections:' | sed 's/^sections:/section_requirements:/'
+  echo "$task_stats" | grep '^total:' | sed 's/^total:/total_tasks:/'
+  echo "$task_stats" | grep '^pending:'
+  echo "$task_stats" | grep '^completed:' | sed 's/^completed:/completed_tasks:/'
+  echo "$task_stats" | grep '^orphans:' | sed 's/^orphans:/orphan_tasks:/'
+  local total_specs=$(list_specs "$spec_dir" | grep -c . 2>/dev/null) || total_specs=0
+  local covered=$(analyze_coverage "$spec_dir" "$plan_file" | awk -F'|' '$3 > 0 {c++} END {print c+0}')
+  echo "total_specs:$total_specs"; echo "covered_specs:$covered"
+}
+
+generate_report() {
+  local spec_dir="${1:-$VERIFY_PROJECT_DIR/specs}"
+  local plan_file="${2:-$VERIFY_PROJECT_DIR/IMPLEMENTATION_PLAN.md}"
+  local timestamp=$(date +%Y-%m-%dT%H:%M:%SZ)
+  echo "# Verification Report"
+  echo ""; echo "Generated: ${timestamp}"; echo ""
+  echo "## Summary"; echo ""
+  local summary=$(get_verification_summary "$spec_dir" "$plan_file")
+  echo "| Metric | Count |"; echo "|--------|-------|"
+  echo "| Total requirements | $(echo "$summary" | grep '^total_requirements:' | cut -d: -f2) |"
+  echo "| Plan tasks | $(echo "$summary" | grep '^total_tasks:' | cut -d: -f2) |"
+  echo "| Completed | $(echo "$summary" | grep '^completed_tasks:' | cut -d: -f2) |"
+  echo "| Pending | $(echo "$summary" | grep '^pending_tasks:' | cut -d: -f2) |"
+  echo ""; echo "## Coverage by Spec"; echo ""
+  echo "| Spec | Sections | Tasks | Coverage |"; echo "|------|----------|-------|----------|"
+  analyze_coverage "$spec_dir" "$plan_file" | while IFS='|' read -r s r t c; do
+    [[ "$s" == "README" ]] && continue
+    echo "| ${s}.md | $r | $t | ${c}% |"
+  done
+  echo ""; echo "## Missing Coverage"; echo ""
+  local uncovered=$(find_uncovered_specs "$spec_dir" "$plan_file")
+  if [[ -n "$uncovered" ]]; then
+    echo "$uncovered" | while read -r s; do echo "- specs/${s}.md"; done
+  else
+    echo "_All specs have implementation tasks._"
+  fi
+  echo ""
+}
+VERIFY_LIB_EOF
+
+echo -e "${GREEN}✓${NC} Created lib/verify.sh"
+
+#──────────────────────────────────────────────────────────────────
+# Generate fresher-verify CLI
+#──────────────────────────────────────────────────────────────────
+cat > .fresher/bin/fresher-verify << 'VERIFY_CLI_EOF'
+#!/bin/bash
+set -e
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/verify.sh"
+
+SPEC_DIR="$VERIFY_PROJECT_DIR/specs"
+PLAN_FILE="$VERIFY_PROJECT_DIR/IMPLEMENTATION_PLAN.md"
+OUTPUT_FILE="$VERIFY_PROJECT_DIR/VERIFICATION_REPORT.md"
+QUIET=false; STRICT=false; FORMAT="markdown"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --spec-dir) SPEC_DIR="$2"; shift 2;;
+    --plan-file) PLAN_FILE="$2"; shift 2;;
+    --output) OUTPUT_FILE="$2"; shift 2;;
+    --format) FORMAT="$2"; shift 2;;
+    --quiet|-q) QUIET=true; shift;;
+    --strict) STRICT=true; shift;;
+    --help|-h)
+      echo "Usage: fresher verify [options]"
+      echo "  --quiet, -q   Summary only"
+      echo "  --strict      Exit 1 if issues"
+      echo "  --format FMT  markdown|json"
+      exit 0;;
+    *) echo "Unknown: $1" >&2; exit 2;;
+  esac
+done
+
+[[ ! -d "$SPEC_DIR" ]] && { echo "Error: Spec dir not found: $SPEC_DIR" >&2; exit 2; }
+[[ ! -f "$PLAN_FILE" ]] && { echo "Error: Plan not found: $PLAN_FILE" >&2; exit 2; }
+
+summary=$(get_verification_summary "$SPEC_DIR" "$PLAN_FILE")
+orphans=$(echo "$summary" | grep '^orphan_tasks:' | cut -d: -f2)
+total_specs=$(echo "$summary" | grep '^total_specs:' | cut -d: -f2)
+covered=$(echo "$summary" | grep '^covered_specs:' | cut -d: -f2)
+uncovered=$((total_specs - covered - 1)); [[ $uncovered -lt 0 ]] && uncovered=0
+has_issues=false; [[ "$orphans" -gt 0 || "$uncovered" -gt 0 ]] && has_issues=true
+
+if [[ "$QUIET" == "true" ]]; then
+  if [[ "$FORMAT" == "json" ]]; then
+    echo "{\"total_tasks\":$(echo "$summary"|grep '^total_tasks:'|cut -d: -f2),\"has_issues\":$has_issues}"
+  else
+    echo "Tasks: $(echo "$summary"|grep '^total_tasks:'|cut -d: -f2)"
+    echo "Status: $([[ "$has_issues" == "true" ]] && echo "ISSUES FOUND" || echo "OK")"
+  fi
+else
+  generate_report "$SPEC_DIR" "$PLAN_FILE" | tee "$OUTPUT_FILE"
+  echo ""; echo "Report: $OUTPUT_FILE"
+fi
+
+[[ "$STRICT" == "true" && "$has_issues" == "true" ]] && exit 1
+exit 0
+VERIFY_CLI_EOF
+chmod +x .fresher/bin/fresher-verify
+
+echo -e "${GREEN}✓${NC} Created bin/fresher-verify"
 
 #──────────────────────────────────────────────────────────────────
 # Update .gitignore

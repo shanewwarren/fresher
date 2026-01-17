@@ -31,17 +31,38 @@ Commands:
   init      Initialize Fresher in the current directory
   plan      Run planning mode (analyze specs, create implementation plan)
   build     Run building mode (implement tasks from the plan)
+  verify    Verify implementation plan against specifications
+  test      Run Fresher self-tests
 
 Init Options:
   --force, -f           Overwrite existing .fresher/ without prompting
   --project-type TYPE   Override auto-detected project type
   --help, -h            Show help for init command
 
+Verify Options:
+  --quiet, -q           Only output summary metrics
+  --strict              Exit with error (1) if issues found
+  --format FORMAT       Output format: markdown|json (default: markdown)
+  --help, -h            Show help for verify command
+
+Test Options:
+  --unit                Run only unit tests
+  --integration         Run only integration tests
+  --verbose, -v         Show detailed output
+  --filter NAME         Run only tests matching NAME
+  --timeout SEC         Test timeout in seconds (default: 60)
+  --help, -h            Show help for test command
+
 Examples:
   fresher init                    # Initialize in current project
   fresher init --force            # Reinitialize, overwriting existing
   fresher plan                    # Run planning mode
   fresher build                   # Run building mode
+  fresher verify                  # Verify plan against specs
+  fresher verify --quiet          # Quick status check
+  fresher test                    # Run all self-tests
+  fresher test --unit             # Run only unit tests
+  fresher test --filter config    # Run tests matching "config"
 
 Environment Variables:
   FRESHER_MAX_ITERATIONS    Maximum iterations (0=unlimited)
@@ -99,6 +120,36 @@ cmd_build() {
   exec ./.fresher/run.sh "$@"
 }
 
+cmd_verify() {
+  require_fresher_dir
+
+  local verify_script="./.fresher/bin/fresher-verify"
+  if [[ ! -f "$verify_script" ]]; then
+    echo -e "${RED}Error: Verify script not found at $verify_script${NC}"
+    echo ""
+    echo "Your .fresher/ directory may need to be updated."
+    echo "Run 'fresher init --force' to reinitialize."
+    exit 1
+  fi
+
+  exec "$verify_script" "$@"
+}
+
+cmd_test() {
+  require_fresher_dir
+
+  local test_script="./.fresher/tests/run-tests.sh"
+  if [[ ! -f "$test_script" ]]; then
+    echo -e "${RED}Error: Test runner not found at $test_script${NC}"
+    echo ""
+    echo "Your .fresher/ directory may need to be updated."
+    echo "Run 'fresher init --force' to reinitialize."
+    exit 1
+  fi
+
+  exec "$test_script" "$@"
+}
+
 #──────────────────────────────────────────────────────────────────
 # Main
 #──────────────────────────────────────────────────────────────────
@@ -114,6 +165,14 @@ case "${1:-}" in
   build|building)
     shift
     cmd_build "$@"
+    ;;
+  verify)
+    shift
+    cmd_verify "$@"
+    ;;
+  test)
+    shift
+    cmd_test "$@"
     ;;
   help|--help|-h)
     show_help

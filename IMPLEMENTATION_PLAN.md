@@ -2,7 +2,7 @@
 
 Generated: 2025-01-17
 Last Updated: 2026-01-17
-Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-executor.md, specs/prompt-templates.md, specs/docker-isolation.md
+Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-executor.md, specs/prompt-templates.md, specs/docker-isolation.md, specs/plan-verification.md, specs/self-testing.md
 
 ## Priority 1: fresher init Command ✅
 
@@ -222,13 +222,171 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
     - Commented out by default
     - Documentation for common use cases (private npm, internal APIs)
 
+## Priority 7: Plan Verification ✅
+
+- [x] Implement requirement extraction (refs: specs/plan-verification.md §4.1, §7 Phase 1)
+  - Dependencies: none
+  - Complexity: medium
+  - File: `.fresher/lib/verify.sh`
+  - Implementation:
+    - Created `extract_requirements()` function
+    - Parses `specs/*.md` files for section headers (`### Section`)
+    - Extracts checkbox items (`- [ ]` and `- [x]`) with status
+    - Extracts RFC 2119 keywords (skipping code blocks)
+    - Output format: `spec_name|type|line_num|text` (with status for tasks)
+    - Added helper functions: `count_requirements()`, `list_specs()`, `get_spec_requirements()`
+
+- [x] Implement plan parsing (refs: specs/plan-verification.md §4.2, §7 Phase 2)
+  - Dependencies: none
+  - Complexity: low
+  - File: `.fresher/lib/verify.sh`
+  - Implementation:
+    - Created `parse_plan()` function
+    - Extracts tasks from IMPLEMENTATION_PLAN.md with line numbers
+    - Parses status (pending/completed), description, spec references
+    - Normalizes spec refs (removes `specs/` prefix for matching)
+    - Output format: `status|spec_ref|line_num|description`
+    - Added helpers: `count_plan_tasks()`, `get_tasks_for_spec()`, `get_orphan_tasks()`
+
+- [x] Implement cross-reference analysis (refs: specs/plan-verification.md §4.4, §7 Phase 3)
+  - Dependencies: requirement extraction, plan parsing
+  - Complexity: medium
+  - File: `.fresher/lib/verify.sh`
+  - Implementation:
+    - Created `analyze_coverage()` - outputs spec|req_count|task_count|coverage_pct
+    - Created `find_uncovered_specs()` - lists specs with no plan tasks
+    - Created `find_uncovered_sections()` - granular section-level coverage
+    - Created `get_verification_summary()` - high-level stats for reports
+    - Coverage calculated as (tasks / sections) per spec
+
+- [x] Implement code evidence search (refs: specs/plan-verification.md §4.3, §7 Phase 4)
+  - Dependencies: cross-reference analysis
+  - Complexity: medium
+  - File: `.fresher/lib/verify.sh`
+  - Implementation:
+    - Created `extract_keywords()` - filters stopwords, extracts significant terms
+    - Created `find_evidence()` - searches src dirs for keyword matches
+    - Created `find_all_evidence()` - finds evidence for all completed tasks
+    - Supports both ripgrep (rg) and grep fallback
+    - Returns file:line|matched_text format
+
+- [x] Implement report generation (refs: specs/plan-verification.md §3.3, §7 Phase 5)
+  - Dependencies: all analysis functions
+  - Complexity: low
+  - File: `.fresher/lib/verify.sh`
+  - Implementation:
+    - Created `generate_report()` function outputting markdown
+    - Summary table with all metrics
+    - Coverage by spec table with percentages
+    - Missing coverage section listing uncovered specs
+    - Orphan tasks section (if any)
+    - Implementation evidence table (first 20 matches)
+    - Recommendations based on analysis
+    - Created `generate_report_file()` wrapper for file output
+
+- [x] Create CLI entry point (refs: specs/plan-verification.md §5, §7 Phase 6)
+  - Dependencies: report generation
+  - Complexity: low
+  - File: `.fresher/bin/fresher-verify`
+  - Implementation:
+    - All command-line options implemented:
+      - `--spec-dir`, `--plan-file`, `--src-dir`, `--output`
+      - `--format` (markdown/json)
+      - `--quiet`/`-q` (summary only)
+      - `--strict` (exit 1 if issues)
+      - `--help`/`-h`
+    - Sources verify.sh library
+    - Exit codes: 0=ok, 1=issues (strict), 2=error
+    - JSON output for both quiet and full modes
+
+- [x] Add fresher verify command routing (refs: specs/plan-verification.md §5)
+  - Dependencies: CLI entry point
+  - Complexity: low
+  - File: `bin/fresher`
+  - Implementation:
+    - Added `verify` subcommand to main fresher CLI
+    - Added `cmd_verify()` function that routes to `.fresher/bin/fresher-verify`
+    - Added verify options and examples to help text
+
+## Priority 8: Self-Testing ✅
+
+- [x] Create test runner script (refs: specs/self-testing.md §4.1, §7 Phase 1)
+  - Dependencies: none
+  - Complexity: low
+  - File: `.fresher/tests/run-tests.sh`
+  - Implementation:
+    - Create tests/ directory structure (unit/, integration/, fixtures/, mocks/)
+    - Implement setup_test_env() - creates temp dir, copies fixtures, sets PATH
+    - Implement teardown_test_env() - cleanup temp dir
+    - Implement run_test() - executes test file, tracks pass/fail, times execution
+    - Main function runs unit then integration tests
+    - Exit 1 if any tests fail, 0 otherwise
+
+- [x] Create mock Claude CLI (refs: specs/self-testing.md §4.2, §7 Phase 2)
+  - Dependencies: none
+  - Complexity: medium
+  - File: `.fresher/tests/mocks/mock-claude.sh`
+  - Implementation:
+    - Parse Claude CLI arguments (-p, --output-format, --max-turns, etc.)
+    - Support MOCK_CLAUDE_MODE env var (success, no_changes, error, timeout)
+    - Support MOCK_CLAUDE_DELAY env var for timing tests
+    - Output stream-json format when requested
+    - Simulate commits in success mode when git repo exists
+    - Symlink as 'claude' in test PATH
+
+- [x] Create test utilities library (refs: specs/self-testing.md §6, §7 Phase 3)
+  - Dependencies: none
+  - Complexity: low
+  - File: `.fresher/lib/test-utils.sh`
+  - Implementation:
+    - assert_equals() - compare actual vs expected values
+    - assert_contains() - check string contains substring
+    - assert_file_exists() - verify file presence
+    - assert_exit_code() - run command and check exit code
+    - create_mock_project() - scaffolds test project structure
+    - create_mock_plan() - generates sample IMPLEMENTATION_PLAN.md
+
+- [x] Create test fixtures (refs: specs/self-testing.md §3.3, §7 Phase 3)
+  - Dependencies: none
+  - Complexity: low
+  - File: `.fresher/tests/fixtures/`
+  - Implementation:
+    - mock-project/ with src/, specs/, package.json, CLAUDE.md
+    - sample-specs/ with README.md and feature.md
+    - sample-plan.md with pending and completed tasks
+
+- [x] Implement unit tests (refs: specs/self-testing.md §4.3, §7 Phase 4)
+  - Dependencies: test runner, mock CLI, test utilities
+  - Complexity: medium
+  - Files: `.fresher/tests/unit/test-*.sh`
+  - Implementation:
+    - test-config.sh - config loading and environment overrides
+    - test-termination.sh - max iterations, smart termination detection
+    - test-hooks.sh - hook execution, environment passing, exit codes
+    - test-verify.sh - verification functions (from Priority 7)
+
+- [x] Implement integration tests (refs: specs/self-testing.md §4.4, §7 Phase 5)
+  - Dependencies: test runner, mock CLI, test utilities
+  - Complexity: medium
+  - Files: `.fresher/tests/integration/test-*.sh`
+  - Implementation:
+    - test-planning-mode.sh - full planning loop with mock Claude
+    - test-building-mode.sh - building loop with commit tracking
+    - test-max-iterations.sh - termination at iteration limit
+    - test-smart-termination.sh - termination when tasks complete
+
+- [x] Add fresher test command (refs: specs/self-testing.md §5, §7 Phase 6)
+  - Dependencies: all test phases
+  - Complexity: low
+  - File: `bin/fresher`
+  - Implementation:
+    - Add `test` subcommand to main fresher CLI
+    - Options: --unit, --integration, --verbose, --filter, --timeout
+    - Route to `.fresher/tests/run-tests.sh`
+    - Add help text for test command
+
 ---
 
 ## Future Work (Not Yet Planned)
 
-These specs need implementation plans created:
-
-| Spec | Status | Description |
-|------|--------|-------------|
-| plan-verification.md | Planned | Gap analysis comparing plan against specs and code |
-| self-testing.md | Planned | Test scenarios to verify the loop works correctly |
+_All specs have been implemented._
