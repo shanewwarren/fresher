@@ -428,6 +428,102 @@ else
 fi
 
 #──────────────────────────────────────────────────────────────────
+# CLAUDE.md integration
+#──────────────────────────────────────────────────────────────────
+SPECS_SECTION='## Specifications
+
+**IMPORTANT:** Before implementing any feature, consult `specs/README.md`.
+
+- **Assume NOT implemented.** Specs describe intent; code describes reality.
+- **Check the codebase first.** Search actual code before concluding.
+- **Use specs as guidance.** Follow design patterns in relevant spec.
+- **Spec index:** `specs/README.md` lists all specs by category.'
+
+if [[ ! -f "CLAUDE.md" ]]; then
+  # Create minimal CLAUDE.md
+  cat > CLAUDE.md << EOF
+# Project Guidelines
+
+$SPECS_SECTION
+EOF
+  echo -e "${GREEN}✓${NC} Created CLAUDE.md"
+elif ! grep -q "## Specifications" CLAUDE.md 2>/dev/null; then
+  # Inject specs section after first heading or at end
+  # Find the line number of the first heading
+  first_heading_line=$(grep -n "^#" CLAUDE.md | head -1 | cut -d: -f1)
+
+  if [[ -n "$first_heading_line" ]]; then
+    # Find the next heading after the first one
+    next_heading_line=$(tail -n +$((first_heading_line + 1)) CLAUDE.md | grep -n "^#" | head -1 | cut -d: -f1)
+
+    if [[ -n "$next_heading_line" ]]; then
+      # Insert before the next heading
+      insert_line=$((first_heading_line + next_heading_line))
+      {
+        head -n $((insert_line - 1)) CLAUDE.md
+        echo ""
+        echo "$SPECS_SECTION"
+        echo ""
+        tail -n +$insert_line CLAUDE.md
+      } > CLAUDE.md.tmp && mv CLAUDE.md.tmp CLAUDE.md
+    else
+      # No other headings, append at end
+      echo "" >> CLAUDE.md
+      echo "$SPECS_SECTION" >> CLAUDE.md
+    fi
+  else
+    # No headings at all, just append
+    echo "" >> CLAUDE.md
+    echo "$SPECS_SECTION" >> CLAUDE.md
+  fi
+  echo -e "${GREEN}✓${NC} Added Specifications section to CLAUDE.md"
+else
+  echo -e "${YELLOW}○${NC} CLAUDE.md already has Specifications section"
+fi
+
+#──────────────────────────────────────────────────────────────────
+# Create specs/ directory if it doesn't exist
+#──────────────────────────────────────────────────────────────────
+if [[ ! -d "specs" ]]; then
+  mkdir -p specs
+  cat > specs/README.md << 'EOF'
+# Specifications
+
+This directory contains design specifications for the project.
+
+## Status Legend
+
+- **Planned** - Design complete, not yet implemented
+- **In Progress** - Currently being implemented
+- **Implemented** - Feature complete and tested
+
+## Specifications
+
+| Spec | Status | Purpose |
+|------|--------|---------|
+| (none yet) | - | - |
+
+---
+
+## Creating Specifications
+
+Each spec should include:
+
+1. **Overview** - Purpose, goals, non-goals
+2. **Architecture** - Structure and flow diagrams
+3. **Core Types** - Data structures and interfaces
+4. **Behaviors** - How the feature works
+5. **Security Considerations** - Potential risks
+6. **Implementation Phases** - Ordered steps
+
+See existing specs for examples.
+EOF
+  echo -e "${GREEN}✓${NC} Created specs/ directory with README.md"
+else
+  echo -e "${YELLOW}○${NC} specs/ directory already exists"
+fi
+
+#──────────────────────────────────────────────────────────────────
 # Print summary
 #──────────────────────────────────────────────────────────────────
 echo ""

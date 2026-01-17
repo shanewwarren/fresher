@@ -1,0 +1,132 @@
+#!/bin/bash
+# fresher - CLI for the Ralph Loop implementation
+# Manages AI-driven iterative development with Claude Code
+
+set -e
+
+#──────────────────────────────────────────────────────────────────
+# Resolve the location of the fresher installation
+#──────────────────────────────────────────────────────────────────
+FRESHER_BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FRESHER_INSTALL_DIR="$(cd "$FRESHER_BIN_DIR/.." && pwd)"
+
+#──────────────────────────────────────────────────────────────────
+# Colors
+#──────────────────────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+#──────────────────────────────────────────────────────────────────
+# Help text
+#──────────────────────────────────────────────────────────────────
+show_help() {
+  cat << 'EOF'
+fresher - AI-driven iterative development with Claude Code
+
+Usage: fresher <command> [options]
+
+Commands:
+  init      Initialize Fresher in the current directory
+  plan      Run planning mode (analyze specs, create implementation plan)
+  build     Run building mode (implement tasks from the plan)
+
+Init Options:
+  --force, -f           Overwrite existing .fresher/ without prompting
+  --project-type TYPE   Override auto-detected project type
+  --help, -h            Show help for init command
+
+Examples:
+  fresher init                    # Initialize in current project
+  fresher init --force            # Reinitialize, overwriting existing
+  fresher plan                    # Run planning mode
+  fresher build                   # Run building mode
+
+Environment Variables:
+  FRESHER_MAX_ITERATIONS    Maximum iterations (0=unlimited)
+  FRESHER_MODEL             Claude model to use (default: sonnet)
+  FRESHER_MAX_TURNS         Max turns per iteration (default: 50)
+
+For more information, see: https://github.com/anthropics/fresher
+EOF
+}
+
+#──────────────────────────────────────────────────────────────────
+# Check for .fresher/ directory
+#──────────────────────────────────────────────────────────────────
+require_fresher_dir() {
+  if [[ ! -d ".fresher" ]]; then
+    echo -e "${RED}Error: No .fresher/ directory found in current directory${NC}"
+    echo ""
+    echo "Run 'fresher init' to initialize Fresher in this project"
+    exit 1
+  fi
+
+  if [[ ! -f ".fresher/run.sh" ]]; then
+    echo -e "${RED}Error: .fresher/run.sh not found${NC}"
+    echo ""
+    echo "Your .fresher/ directory appears to be incomplete."
+    echo "Run 'fresher init --force' to reinitialize."
+    exit 1
+  fi
+}
+
+#──────────────────────────────────────────────────────────────────
+# Commands
+#──────────────────────────────────────────────────────────────────
+cmd_init() {
+  local init_script="$FRESHER_INSTALL_DIR/.fresher-internal/init.sh"
+
+  if [[ ! -f "$init_script" ]]; then
+    echo -e "${RED}Error: Init script not found at $init_script${NC}"
+    echo "Fresher installation may be corrupted."
+    exit 1
+  fi
+
+  exec bash "$init_script" "$@"
+}
+
+cmd_plan() {
+  require_fresher_dir
+  export FRESHER_MODE="planning"
+  exec ./.fresher/run.sh "$@"
+}
+
+cmd_build() {
+  require_fresher_dir
+  export FRESHER_MODE="building"
+  exec ./.fresher/run.sh "$@"
+}
+
+#──────────────────────────────────────────────────────────────────
+# Main
+#──────────────────────────────────────────────────────────────────
+case "${1:-}" in
+  init)
+    shift
+    cmd_init "$@"
+    ;;
+  plan|planning)
+    shift
+    cmd_plan "$@"
+    ;;
+  build|building)
+    shift
+    cmd_build "$@"
+    ;;
+  help|--help|-h)
+    show_help
+    exit 0
+    ;;
+  "")
+    show_help
+    exit 1
+    ;;
+  *)
+    echo -e "${RED}Error: Unknown command '$1'${NC}"
+    echo ""
+    show_help
+    exit 1
+    ;;
+esac
