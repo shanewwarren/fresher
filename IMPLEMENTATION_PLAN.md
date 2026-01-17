@@ -1,7 +1,8 @@
 # Implementation Plan
 
 Generated: 2025-01-17
-Based on: specs/project-scaffold.md
+Last Updated: 2025-01-17
+Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md
 
 ## Priority 1: fresher init Command ✅
 
@@ -57,9 +58,29 @@ Based on: specs/project-scaffold.md
 - [ ] Add timeout to hook execution (refs: specs/lifecycle-hooks.md §4.1)
   - Dependencies: none
   - Complexity: low
-  - Notes: Use `timeout` command with FRESHER_HOOK_TIMEOUT config
+  - File: `.fresher-internal/init.sh` (hook generation section)
+  - Implementation:
+    - Add `FRESHER_HOOK_TIMEOUT` to config.sh (default: 30s)
+    - Wrap hook calls in `timeout $FRESHER_HOOK_TIMEOUT` in run.sh
+    - Handle timeout exit code (124) gracefully
 
 - [ ] Expand hook templates with full examples (refs: specs/lifecycle-hooks.md §4.2)
   - Dependencies: none
   - Complexity: low
-  - Notes: Add prerequisite checks, notification examples from spec
+  - File: `.fresher-internal/init.sh` (hook generation section)
+  - Templates to expand:
+    - `started`: Add prerequisite checks (git clean, deps installed)
+    - `next_iteration`: Add notification example (terminal-notifier/notify-send)
+    - `finished`: Add summary stats, optional Slack/Discord webhook example
+
+---
+
+## Future Work (Not Yet Planned)
+
+These specs need implementation plans created:
+
+| Spec | Status | Description |
+|------|--------|-------------|
+| plan-verification.md | Planned | Gap analysis comparing plan against specs and code |
+| self-testing.md | Planned | Test scenarios to verify the loop works correctly |
+| docker-isolation.md | Planned | Devcontainer integration using official Claude Code image |
