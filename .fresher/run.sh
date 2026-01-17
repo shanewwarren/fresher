@@ -1,6 +1,6 @@
 #!/bin/bash
 # Fresher Loop Executor
-# Runs Claude Code in iterative cycles with fresh context each iteration
+# Main loop that runs Claude Code in iterative cycles
 
 set -e
 
@@ -8,316 +8,239 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 #──────────────────────────────────────────────────────────────────
-# Colors
+# Load Configuration
 #──────────────────────────────────────────────────────────────────
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
 
-#──────────────────────────────────────────────────────────────────
-# Load configuration and libraries
-#──────────────────────────────────────────────────────────────────
 source "$SCRIPT_DIR/config.sh"
-source "$SCRIPT_DIR/lib/state.sh"
-source "$SCRIPT_DIR/lib/termination.sh"
 
-# Export project directory for hooks
+#──────────────────────────────────────────────────────────────────
+# State Variables
+#──────────────────────────────────────────────────────────────────
+
+ITERATION=0
+LAST_EXIT_CODE=0
+LAST_DURATION=0
+COMMITS_MADE=0
+STARTED_AT=$(date +%s)
+FINISH_TYPE=""
+
+# Export for hooks
 export FRESHER_PROJECT_DIR="$PROJECT_DIR"
+export FRESHER_ITERATION=0
+export FRESHER_LAST_EXIT_CODE=0
+export FRESHER_LAST_DURATION=0
+export FRESHER_COMMITS_MADE=0
+export FRESHER_TOTAL_ITERATIONS=0
+export FRESHER_TOTAL_COMMITS=0
+export FRESHER_DURATION=0
+export FRESHER_FINISH_TYPE=""
 
 #──────────────────────────────────────────────────────────────────
-# Logging
+# Helper Functions
 #──────────────────────────────────────────────────────────────────
-log_info() {
-  echo -e "${BLUE}[fresher]${NC} $1"
+
+log() {
+  echo "[fresher] $*"
 }
 
-log_success() {
-  echo -e "${GREEN}[fresher]${NC} $1"
+error() {
+  echo "[fresher] ERROR: $*" >&2
 }
 
-log_warn() {
-  echo -e "${YELLOW}[fresher]${NC} $1"
-}
-
-log_error() {
-  echo -e "${RED}[fresher]${NC} $1"
-}
-
-#──────────────────────────────────────────────────────────────────
-# Hook execution
-#──────────────────────────────────────────────────────────────────
+# Run a hook script if it exists and is executable
+# Returns: 0 = continue, 1 = skip iteration, 2 = abort loop
 run_hook() {
   local hook_name="$1"
   local hook_path="$SCRIPT_DIR/hooks/$hook_name"
 
-  if [[ ! -x "$hook_path" ]]; then
-    if [[ -f "$hook_path" ]]; then
-      log_warn "Hook $hook_name exists but is not executable"
-    fi
+  # Check if hooks are enabled
+  if [[ "$FRESHER_HOOKS_ENABLED" != "true" ]]; then
     return 0
   fi
 
+  # Check if hook exists and is executable
+  if [[ ! -x "$hook_path" ]]; then
+    return 0
+  fi
+
+  # Update exported state for hook
+  export FRESHER_ITERATION="$ITERATION"
+  export FRESHER_LAST_EXIT_CODE="$LAST_EXIT_CODE"
+  export FRESHER_LAST_DURATION="$LAST_DURATION"
+  export FRESHER_COMMITS_MADE="$COMMITS_MADE"
+  export FRESHER_TOTAL_ITERATIONS="$ITERATION"
+  export FRESHER_TOTAL_COMMITS="$COMMITS_MADE"
+  export FRESHER_DURATION=$(($(date +%s) - STARTED_AT))
+  export FRESHER_FINISH_TYPE="$FINISH_TYPE"
+
+  # Run the hook
   local exit_code=0
   "$hook_path" || exit_code=$?
-
-  case $exit_code in
-    0)
-      # Success
-      ;;
-    1)
-      log_warn "Hook $hook_name returned warning (exit 1)"
-      ;;
-    2)
-      log_error "Hook $hook_name requested abort (exit 2)"
-      export FRESHER_FINISH_TYPE="hook_abort"
-      return 2
-      ;;
-    *)
-      log_error "Hook $hook_name failed with exit code $exit_code"
-      ;;
-  esac
-
-  return 0
-}
-
-#──────────────────────────────────────────────────────────────────
-# Cleanup handler
-#──────────────────────────────────────────────────────────────────
-cleanup() {
-  local exit_code=$?
-
-  echo ""
-  log_info "Shutting down..."
-
-  # Set finish type if not already set
-  FRESHER_FINISH_TYPE="${FRESHER_FINISH_TYPE:-manual}"
-
-  # Export final statistics
-  export FRESHER_TOTAL_ITERATIONS="$FRESHER_ITERATION"
-  export FRESHER_DURATION=$(get_elapsed_seconds)
-
-  # Run finished hook
-  run_hook "finished" || true
-
-  # Write final state
-  write_state
-
-  # Print summary
-  echo ""
-  echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
-  log_info "$(get_finish_message)"
-  log_info "Total iterations: $FRESHER_TOTAL_ITERATIONS"
-  log_info "Total commits: $FRESHER_TOTAL_COMMITS"
-  log_info "Duration: ${FRESHER_DURATION}s"
-  echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
-
-  exit $exit_code
-}
-
-#──────────────────────────────────────────────────────────────────
-# Signal handlers
-#──────────────────────────────────────────────────────────────────
-trap cleanup EXIT
-trap 'FRESHER_FINISH_TYPE="manual"; exit 130' INT TERM
-
-#──────────────────────────────────────────────────────────────────
-# Validate environment
-#──────────────────────────────────────────────────────────────────
-validate_environment() {
-  # Check for claude CLI
-  if ! command -v claude &>/dev/null; then
-    log_error "Claude Code CLI not found. Please install it first."
-    log_error "Visit: https://claude.ai/code"
-    exit 1
-  fi
-
-  # Check mode
-  if [[ "$FRESHER_MODE" != "planning" && "$FRESHER_MODE" != "building" ]]; then
-    log_error "Invalid FRESHER_MODE: $FRESHER_MODE"
-    log_error "Must be 'planning' or 'building'"
-    exit 1
-  fi
-
-  # Check prompt file exists
-  local prompt_file="$SCRIPT_DIR/PROMPT.${FRESHER_MODE}.md"
-  if [[ ! -f "$prompt_file" ]]; then
-    log_error "Prompt file not found: $prompt_file"
-    exit 1
-  fi
-
-  # Check AGENTS.md exists
-  if [[ ! -f "$SCRIPT_DIR/AGENTS.md" ]]; then
-    log_error "AGENTS.md not found: $SCRIPT_DIR/AGENTS.md"
-    exit 1
-  fi
-}
-
-#──────────────────────────────────────────────────────────────────
-# Build Claude command
-#──────────────────────────────────────────────────────────────────
-build_claude_command() {
-  local cmd="claude"
-
-  # Add prompt
-  cmd+=" -p \"\$(cat $SCRIPT_DIR/PROMPT.${FRESHER_MODE}.md)\""
-
-  # Add system prompt file
-  cmd+=" --append-system-prompt-file $SCRIPT_DIR/AGENTS.md"
-
-  # Add dangerous permissions if enabled
-  if [[ "${FRESHER_DANGEROUS_PERMISSIONS:-true}" == "true" ]]; then
-    cmd+=" --dangerously-skip-permissions"
-  fi
-
-  # Add max turns
-  cmd+=" --max-turns ${FRESHER_MAX_TURNS:-50}"
-
-  # Add model
-  cmd+=" --model ${FRESHER_MODEL:-sonnet}"
-
-  # Disable session persistence for fresh context each iteration
-  cmd+=" --no-session-persistence"
-
-  # Output format for streaming
-  cmd+=" --output-format stream-json"
-
-  echo "$cmd"
-}
-
-#──────────────────────────────────────────────────────────────────
-# Run Claude Code iteration
-#──────────────────────────────────────────────────────────────────
-run_iteration() {
-  local iteration="$1"
-  local log_file="$FRESHER_LOG_DIR/iteration-${iteration}.log"
-
-  # Ensure log directory exists
-  mkdir -p "$FRESHER_LOG_DIR"
-
-  # Record commit SHA before iteration
-  local sha_before=$(git rev-parse HEAD 2>/dev/null || echo "")
-
-  log_info "Running Claude Code..."
-  echo ""
-
-  # Build and run Claude command with streaming output
-  local exit_code=0
-
-  # Run Claude with output streaming
-  eval "claude \
-    -p \"\$(cat $SCRIPT_DIR/PROMPT.${FRESHER_MODE}.md)\" \
-    --append-system-prompt-file $SCRIPT_DIR/AGENTS.md \
-    $([ \"${FRESHER_DANGEROUS_PERMISSIONS:-true}\" == \"true\" ] && echo \"--dangerously-skip-permissions\") \
-    --max-turns ${FRESHER_MAX_TURNS:-50} \
-    --model ${FRESHER_MODEL:-sonnet} \
-    --no-session-persistence \
-    --output-format stream-json" 2>&1 | tee -a "$log_file" | while IFS= read -r line; do
-      # Try to parse as JSON and extract content
-      if echo "$line" | jq -e '.type' &>/dev/null; then
-        local event_type=$(echo "$line" | jq -r '.type // empty')
-        case "$event_type" in
-          assistant)
-            # Display assistant message content
-            local content=$(echo "$line" | jq -r '.message.content[]?.text // empty' 2>/dev/null)
-            if [[ -n "$content" ]]; then
-              echo "$content"
-            fi
-            ;;
-          result)
-            # Final result
-            local result_text=$(echo "$line" | jq -r '.result // empty' 2>/dev/null)
-            if [[ -n "$result_text" ]]; then
-              echo ""
-              echo "$result_text"
-            fi
-            ;;
-        esac
-      else
-        # Not JSON, print as-is (could be stderr or other output)
-        echo "$line"
-      fi
-    done || exit_code=$?
-
-  echo ""
-
-  # Update state with exit code
-  FRESHER_LAST_EXIT_CODE="$exit_code"
-
-  # Track commits
-  update_commit_tracking || true
 
   return $exit_code
 }
 
-#──────────────────────────────────────────────────────────────────
-# Main loop
-#──────────────────────────────────────────────────────────────────
-main() {
-  # Print header
-  echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
-  echo -e "${CYAN}  Fresher Loop Executor${NC}"
-  echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
-  echo ""
-  log_info "Mode: $FRESHER_MODE"
-  log_info "Max iterations: ${FRESHER_MAX_ITERATIONS:-0} (0=unlimited)"
-  log_info "Smart termination: ${FRESHER_SMART_TERMINATION:-true}"
-  log_info "Model: ${FRESHER_MODEL:-sonnet}"
-  echo ""
-
-  # Validate environment
-  validate_environment
-
-  # Initialize state
-  init_state
-
-  # Run started hook
-  if ! run_hook "started"; then
-    exit 1
+# Count commits since a given SHA
+count_commits_since() {
+  local since_sha="$1"
+  if [[ -z "$since_sha" ]]; then
+    echo "0"
+    return
   fi
-
-  # Main loop
-  while true; do
-    # Increment iteration
-    increment_iteration
-
-    echo ""
-    echo -e "${CYAN}────────────────────────────────────────────────────────────────${NC}"
-    log_info "Iteration $FRESHER_ITERATION"
-    echo -e "${CYAN}────────────────────────────────────────────────────────────────${NC}"
-    echo ""
-
-    # Run next_iteration hook
-    if ! run_hook "next_iteration"; then
-      if [[ "$FRESHER_FINISH_TYPE" == "hook_abort" ]]; then
-        break
-      fi
-    fi
-
-    # Run Claude Code
-    local iteration_exit_code=0
-    run_iteration "$FRESHER_ITERATION" || iteration_exit_code=$?
-
-    # Check for errors
-    if check_error_termination "$iteration_exit_code"; then
-      log_error "Claude Code exited with error"
-      break
-    fi
-
-    # Check termination conditions
-    if should_terminate; then
-      log_success "$(get_finish_message)"
-      break
-    fi
-
-    log_info "Iteration $FRESHER_ITERATION complete. Continuing..."
-  done
+  git rev-list --count "$since_sha"..HEAD 2>/dev/null || echo "0"
 }
 
-# Change to project directory
-cd "$PROJECT_DIR"
+#──────────────────────────────────────────────────────────────────
+# Signal Handling
+#──────────────────────────────────────────────────────────────────
 
-# Run main
-main "$@"
+cleanup() {
+  local exit_code=$?
+
+  # Set finish type if not already set
+  if [[ -z "$FINISH_TYPE" ]]; then
+    FINISH_TYPE="manual"
+  fi
+
+  # Update final state
+  export FRESHER_TOTAL_ITERATIONS="$ITERATION"
+  export FRESHER_TOTAL_COMMITS="$COMMITS_MADE"
+  export FRESHER_DURATION=$(($(date +%s) - STARTED_AT))
+  export FRESHER_FINISH_TYPE="$FINISH_TYPE"
+
+  # Run finished hook
+  run_hook "finished" || true
+
+  exit $exit_code
+}
+
+# Trap SIGINT (Ctrl+C) and SIGTERM
+trap 'FINISH_TYPE="manual"; exit 130' INT TERM
+trap cleanup EXIT
+
+#──────────────────────────────────────────────────────────────────
+# Validation
+#──────────────────────────────────────────────────────────────────
+
+# Validate mode
+if [[ "$FRESHER_MODE" != "planning" && "$FRESHER_MODE" != "building" ]]; then
+  error "Invalid FRESHER_MODE: $FRESHER_MODE (must be 'planning' or 'building')"
+  exit 1
+fi
+
+# Check prompt file exists
+PROMPT_FILE="$SCRIPT_DIR/PROMPT.${FRESHER_MODE}.md"
+if [[ ! -f "$PROMPT_FILE" ]]; then
+  error "Prompt file not found: $PROMPT_FILE"
+  exit 1
+fi
+
+# Check claude command exists
+if ! command -v claude &> /dev/null; then
+  error "claude command not found. Install Claude Code CLI first."
+  exit 1
+fi
+
+#──────────────────────────────────────────────────────────────────
+# Main Loop
+#──────────────────────────────────────────────────────────────────
+
+log "Starting Fresher loop"
+log "Mode: $FRESHER_MODE"
+log "Press Ctrl+C to stop"
+echo ""
+
+# Run started hook
+if ! run_hook "started"; then
+  hook_exit=$?
+  if [[ $hook_exit -eq 2 ]]; then
+    FINISH_TYPE="hook_abort"
+    error "Started hook aborted the loop"
+    exit 1
+  fi
+fi
+
+# Record initial commit SHA for change detection
+INITIAL_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
+
+# Main execution loop
+while true; do
+  # Increment iteration
+  ((ITERATION++))
+
+  # Record iteration start
+  ITERATION_START=$(date +%s)
+  ITERATION_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
+
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  log "Iteration $ITERATION"
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # Run next_iteration hook
+  if ! run_hook "next_iteration"; then
+    hook_exit=$?
+    if [[ $hook_exit -eq 1 ]]; then
+      log "Skipping iteration (hook returned 1)"
+      continue
+    elif [[ $hook_exit -eq 2 ]]; then
+      FINISH_TYPE="hook_abort"
+      error "next_iteration hook aborted the loop"
+      exit 1
+    fi
+  fi
+
+  # Build Claude Code command
+  CLAUDE_CMD=(claude)
+  CLAUDE_CMD+=(-p "$(cat "$PROMPT_FILE")")
+
+  # Add AGENTS.md if it exists
+  if [[ -f "$SCRIPT_DIR/AGENTS.md" ]]; then
+    CLAUDE_CMD+=(--append-system-prompt-file "$SCRIPT_DIR/AGENTS.md")
+  fi
+
+  # Add dangerous permissions flag if enabled
+  if [[ "$FRESHER_DANGEROUS_PERMISSIONS" == "true" ]]; then
+    CLAUDE_CMD+=(--dangerously-skip-permissions)
+  fi
+
+  # Add max turns
+  CLAUDE_CMD+=(--max-turns "$FRESHER_MAX_TURNS")
+
+  # Disable session persistence (fresh context each iteration)
+  CLAUDE_CMD+=(--no-session-persistence)
+
+  # Set model
+  CLAUDE_CMD+=(--model "$FRESHER_MODEL")
+
+  # Invoke Claude Code
+  log "Invoking Claude Code..."
+  echo ""
+
+  LAST_EXIT_CODE=0
+  "${CLAUDE_CMD[@]}" || LAST_EXIT_CODE=$?
+
+  echo ""
+
+  # Record iteration duration
+  LAST_DURATION=$(($(date +%s) - ITERATION_START))
+
+  # Count new commits this iteration
+  CURRENT_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
+  if [[ -n "$ITERATION_SHA" && -n "$CURRENT_SHA" && "$ITERATION_SHA" != "$CURRENT_SHA" ]]; then
+    NEW_COMMITS=$(git rev-list --count "$ITERATION_SHA".."$CURRENT_SHA" 2>/dev/null || echo "0")
+    COMMITS_MADE=$((COMMITS_MADE + NEW_COMMITS))
+    log "Commits this iteration: $NEW_COMMITS (total: $COMMITS_MADE)"
+  fi
+
+  log "Iteration $ITERATION complete (exit code: $LAST_EXIT_CODE, duration: ${LAST_DURATION}s)"
+
+  # Check for error exit
+  if [[ $LAST_EXIT_CODE -ne 0 ]]; then
+    FINISH_TYPE="error"
+    error "Claude Code exited with error code $LAST_EXIT_CODE"
+    exit $LAST_EXIT_CODE
+  fi
+
+  # Continue to next iteration
+  # (Termination conditions will be added in later phases)
+done
