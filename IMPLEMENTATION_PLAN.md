@@ -168,9 +168,9 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
     - Updated PROMPT.planning.md generation
     - Updated PROMPT.building.md generation
 
-## Priority 6: Docker Isolation
+## Priority 6: Docker Isolation ✅
 
-- [ ] Create Fresher devcontainer.json (refs: specs/docker-isolation.md §4.1, §8 Phase 1) ← NEXT
+- [x] Create Fresher devcontainer.json (refs: specs/docker-isolation.md §4.1, §8 Phase 1)
   - Dependencies: none
   - Complexity: low
   - File: `.fresher/docker/devcontainer.json`
@@ -181,7 +181,7 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
     - Set container environment variables (FRESHER_IN_DOCKER, DEVCONTAINER)
     - Add NET_ADMIN/NET_RAW capabilities for firewall
 
-- [ ] Create docker-compose.yml for CLI workflow (refs: specs/docker-isolation.md §5.2, §8 Phase 2)
+- [x] Create docker-compose.yml for CLI workflow (refs: specs/docker-isolation.md §5.2, §8 Phase 2)
   - Dependencies: devcontainer.json
   - Complexity: low
   - File: `.fresher/docker/docker-compose.yml`
@@ -192,7 +192,7 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
     - Pass through FRESHER_MODE and other env vars
     - Run firewall init and .fresher/run.sh
 
-- [ ] Add Docker detection logic to run.sh (refs: specs/docker-isolation.md §5.1, §8 Phase 3)
+- [x] Add Docker detection logic to run.sh (refs: specs/docker-isolation.md §5.1, §8 Phase 3)
   - Dependencies: loop-executor (complete)
   - Complexity: low
   - File: `.fresher/run.sh`
@@ -202,7 +202,7 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
     - If Docker enabled but not in container, show instructions and exit
     - Continue normal execution if in container or Docker disabled
 
-- [ ] Update init.sh to generate Docker files (refs: specs/docker-isolation.md §8)
+- [x] Update init.sh to generate Docker files (refs: specs/docker-isolation.md §8)
   - Dependencies: devcontainer.json, docker-compose.yml created
   - Complexity: low
   - File: `.fresher-internal/init.sh`
@@ -210,9 +210,10 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
     - Create `.fresher/docker/` directory during init
     - Generate devcontainer.json with project-specific settings
     - Generate docker-compose.yml
+    - Generate fresher-firewall-overlay.sh
     - Skip if --no-docker flag is set
 
-- [ ] Create firewall overlay script template (refs: specs/docker-isolation.md §5.3, §8 Phase 4)
+- [x] Create firewall overlay script template (refs: specs/docker-isolation.md §5.3, §8 Phase 4)
   - Dependencies: devcontainer.json
   - Complexity: low
   - File: `.fresher/docker/fresher-firewall-overlay.sh`

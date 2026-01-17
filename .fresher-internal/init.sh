@@ -296,10 +296,13 @@ if [[ "$NO_DOCKER" != "true" ]]; then
   cat >> .fresher/config.sh << EOF
 
 #──────────────────────────────────────────────────────────────────
-# Docker (optional)
+# Docker/Devcontainer Configuration
 #──────────────────────────────────────────────────────────────────
 export FRESHER_USE_DOCKER="\${FRESHER_USE_DOCKER:-$USE_DOCKER}"
-export FRESHER_DOCKER_IMAGE="\${FRESHER_DOCKER_IMAGE:-fresher:local}"
+
+# Resource limits (passed to devcontainer)
+export FRESHER_DOCKER_MEMORY="\${FRESHER_DOCKER_MEMORY:-4g}"
+export FRESHER_DOCKER_CPUS="\${FRESHER_DOCKER_CPUS:-2}"
 EOF
 fi
 
@@ -658,6 +661,161 @@ EOF
 fi
 
 #──────────────────────────────────────────────────────────────────
+# Generate Docker files
+#──────────────────────────────────────────────────────────────────
+if [[ "$NO_DOCKER" != "true" ]]; then
+  mkdir -p .fresher/docker
+
+  # Generate devcontainer.json
+  cat > .fresher/docker/devcontainer.json << 'EOF'
+{
+  "name": "Fresher Loop Environment",
+  "image": "ghcr.io/anthropics/claude-code-devcontainer:latest",
+  "runArgs": [
+    "--cap-add=NET_ADMIN",
+    "--cap-add=NET_RAW"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      }
+    }
+  },
+  "remoteUser": "node",
+  "mounts": [
+    "source=fresher-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
+    "source=fresher-config-${devcontainerId},target=/home/node/.claude,type=volume"
+  ],
+  "containerEnv": {
+    "NODE_OPTIONS": "--max-old-space-size=4096",
+    "FRESHER_IN_DOCKER": "true",
+    "DEVCONTAINER": "true"
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
+  "workspaceFolder": "/workspace",
+  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
+  "waitFor": "postStartCommand"
+}
+EOF
+
+  # Generate docker-compose.yml
+  cat > .fresher/docker/docker-compose.yml << 'EOF'
+# Fresher Docker Compose Configuration
+# For CLI-only workflow (without VS Code devcontainers)
+#
+# Usage:
+#   docker compose -f .fresher/docker/docker-compose.yml run --rm fresher
+
+services:
+  fresher:
+    image: ghcr.io/anthropics/claude-code-devcontainer:latest
+    container_name: fresher-${FRESHER_MODE:-loop}
+
+    # Required for firewall setup
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+    # Interactive mode
+    stdin_open: true
+    tty: true
+
+    # Resource limits
+    mem_limit: ${FRESHER_DOCKER_MEMORY:-4g}
+    cpus: ${FRESHER_DOCKER_CPUS:-2}
+
+    # Volume mounts
+    volumes:
+      - ${PWD}:/workspace
+      - fresher-bashhistory:/commandhistory
+      - fresher-config:/home/node/.claude
+
+    # Environment
+    environment:
+      - FRESHER_MODE=${FRESHER_MODE:-planning}
+      - FRESHER_MAX_ITERATIONS=${FRESHER_MAX_ITERATIONS:-0}
+      - FRESHER_IN_DOCKER=true
+      - DEVCONTAINER=true
+
+    # User mapping
+    user: node
+
+    # Working directory
+    working_dir: /workspace
+
+    # Initialize firewall on start, then run Fresher
+    command: >
+      bash -c "sudo /usr/local/bin/init-firewall.sh && /workspace/.fresher/run.sh"
+
+volumes:
+  fresher-bashhistory:
+  fresher-config:
+EOF
+
+  # Generate firewall overlay script template
+  cat > .fresher/docker/fresher-firewall-overlay.sh << 'EOF'
+#!/bin/bash
+# .fresher/docker/fresher-firewall-overlay.sh
+#
+# Add custom domains to the devcontainer firewall whitelist.
+# Run AFTER the standard init-firewall.sh has initialized the firewall.
+#
+# Usage:
+#   1. Uncomment and modify the CUSTOM_DOMAINS array below
+#   2. Add this script to postStartCommand in devcontainer.json:
+#      "postStartCommand": "sudo /usr/local/bin/init-firewall.sh && ./.fresher/docker/fresher-firewall-overlay.sh"
+#
+# Common use cases:
+#   - Private npm registry (e.g., npm.mycompany.com)
+#   - Internal APIs (e.g., api.internal.mycompany.com)
+#   - Private package registries (e.g., packages.mycompany.com)
+#   - Internal git servers (e.g., git.mycompany.com)
+
+# Uncomment and customize this array with your domains
+# CUSTOM_DOMAINS=(
+#   "npm.mycompany.com"
+#   "api.internal-service.com"
+#   "packages.mycompany.com"
+# )
+
+# Exit if CUSTOM_DOMAINS is not defined or empty
+if [[ -z "${CUSTOM_DOMAINS[*]}" ]]; then
+  echo "No custom domains configured. Edit this file to add domains."
+  exit 0
+fi
+
+echo "Adding custom domains to firewall whitelist..."
+
+for domain in "${CUSTOM_DOMAINS[@]}"; do
+  # Resolve domain to IP addresses
+  ips=$(dig +short A "$domain" 2>/dev/null)
+
+  if [[ -z "$ips" ]]; then
+    echo "Warning: Could not resolve $domain"
+    continue
+  fi
+
+  for ip in $ips; do
+    # Validate IP address format
+    if [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      sudo ipset add allowed-domains "$ip" 2>/dev/null || true
+      echo "Added $domain ($ip) to whitelist"
+    fi
+  done
+done
+
+echo "Firewall overlay complete."
+EOF
+  chmod +x .fresher/docker/fresher-firewall-overlay.sh
+
+  echo -e "${GREEN}✓${NC} Created Docker configuration files"
+fi
+
+#──────────────────────────────────────────────────────────────────
 # Create .gitkeep files
 #──────────────────────────────────────────────────────────────────
 touch .fresher/lib/.gitkeep
@@ -790,7 +948,7 @@ echo -e "${GREEN}Fresher initialized successfully!${NC}"
 echo ""
 echo "Created structure:"
 echo "  .fresher/"
-echo "  ├── run.sh              (loop executor stub)"
+echo "  ├── run.sh              (loop executor)"
 echo "  ├── config.sh           (configuration)"
 echo "  ├── PROMPT.planning.md  (planning mode template)"
 echo "  ├── PROMPT.building.md  (building mode template)"
@@ -800,6 +958,12 @@ if [[ "$NO_HOOKS" != "true" ]]; then
   echo "  │   ├── started"
   echo "  │   ├── next_iteration"
   echo "  │   └── finished"
+fi
+if [[ "$NO_DOCKER" != "true" ]]; then
+  echo "  ├── docker/"
+  echo "  │   ├── devcontainer.json"
+  echo "  │   ├── docker-compose.yml"
+  echo "  │   └── fresher-firewall-overlay.sh"
 fi
 echo "  ├── lib/"
 echo "  └── logs/"

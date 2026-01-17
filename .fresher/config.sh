@@ -1,6 +1,6 @@
 #!/bin/bash
 # Fresher configuration for fresher
-# Generated: 2026-01-17T19:15:10Z
+# Generated: 2026-01-17T20:29:21Z
 # Project type: nodejs
 
 #──────────────────────────────────────────────────────────────────
@@ -42,7 +42,10 @@ export FRESHER_HOOK_TIMEOUT="${FRESHER_HOOK_TIMEOUT:-30}"
 export FRESHER_HOOKS_ENABLED="${FRESHER_HOOKS_ENABLED:-true}"
 
 #──────────────────────────────────────────────────────────────────
-# Docker (optional)
+# Docker/Devcontainer Configuration
 #──────────────────────────────────────────────────────────────────
 export FRESHER_USE_DOCKER="${FRESHER_USE_DOCKER:-false}"
-export FRESHER_DOCKER_IMAGE="${FRESHER_DOCKER_IMAGE:-fresher:local}"
+
+# Resource limits (passed to devcontainer)
+export FRESHER_DOCKER_MEMORY="${FRESHER_DOCKER_MEMORY:-4g}"
+export FRESHER_DOCKER_CPUS="${FRESHER_DOCKER_CPUS:-2}"

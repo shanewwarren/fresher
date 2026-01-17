@@ -159,6 +159,27 @@ trap 'FINISH_TYPE="manual"; exit 130' INT TERM
 trap cleanup EXIT
 
 #──────────────────────────────────────────────────────────────────
+# Docker Isolation Check
+#──────────────────────────────────────────────────────────────────
+
+if [[ "$FRESHER_USE_DOCKER" == "true" ]]; then
+  # Already in a devcontainer?
+  if [[ "$DEVCONTAINER" == "true" ]] || [[ "$FRESHER_IN_DOCKER" == "true" ]]; then
+    log "Running in devcontainer environment"
+  else
+    error "Docker isolation enabled but not in devcontainer."
+    echo ""
+    echo "Options:"
+    echo "  1. Open this folder in VS Code and use 'Reopen in Container'"
+    echo "     (copy .fresher/docker/devcontainer.json to .devcontainer/)"
+    echo "  2. Run: docker compose -f .fresher/docker/docker-compose.yml run --rm fresher"
+    echo ""
+    echo "To disable Docker isolation: export FRESHER_USE_DOCKER=false"
+    exit 1
+  fi
+fi
+
+#──────────────────────────────────────────────────────────────────
 # Validation
 #──────────────────────────────────────────────────────────────────
 

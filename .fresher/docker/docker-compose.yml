@@ -1,0 +1,50 @@
+# Fresher Docker Compose Configuration
+# For CLI-only workflow (without VS Code devcontainers)
+#
+# Usage:
+#   docker compose -f .fresher/docker/docker-compose.yml run --rm fresher
+
+services:
+  fresher:
+    image: ghcr.io/anthropics/claude-code-devcontainer:latest
+    container_name: fresher-${FRESHER_MODE:-loop}
+
+    # Required for firewall setup
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+    # Interactive mode
+    stdin_open: true
+    tty: true
+
+    # Resource limits
+    mem_limit: ${FRESHER_DOCKER_MEMORY:-4g}
+    cpus: ${FRESHER_DOCKER_CPUS:-2}
+
+    # Volume mounts
+    volumes:
+      - ${PWD}:/workspace
+      - fresher-bashhistory:/commandhistory
+      - fresher-config:/home/node/.claude
+
+    # Environment
+    environment:
+      - FRESHER_MODE=${FRESHER_MODE:-planning}
+      - FRESHER_MAX_ITERATIONS=${FRESHER_MAX_ITERATIONS:-0}
+      - FRESHER_IN_DOCKER=true
+      - DEVCONTAINER=true
+
+    # User mapping
+    user: node
+
+    # Working directory
+    working_dir: /workspace
+
+    # Initialize firewall on start, then run Fresher
+    command: >
+      bash -c "sudo /usr/local/bin/init-firewall.sh && /workspace/.fresher/run.sh"
+
+volumes:
+  fresher-bashhistory:
+  fresher-config:
