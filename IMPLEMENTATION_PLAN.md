@@ -2,7 +2,7 @@
 
 Generated: 2025-01-17
 Last Updated: 2026-01-17
-Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-executor.md, specs/prompt-templates.md
+Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-executor.md, specs/prompt-templates.md, specs/docker-isolation.md
 
 ## Priority 1: fresher init Command ✅
 
@@ -73,7 +73,7 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
     - `next_iteration`: Previous iteration stats, skip logic example, desktop notifications (macOS/Linux)
     - `finished`: Summary stats with box drawing, case statement for all finish types, Slack/Discord webhook example
 
-## Priority 4: Loop Executor (In Progress)
+## Priority 4: Loop Executor ✅
 
 - [x] Implement basic loop with manual termination (refs: specs/loop-executor.md §4, §7 Phase 1)
   - Dependencies: none
@@ -168,6 +168,59 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
     - Updated PROMPT.planning.md generation
     - Updated PROMPT.building.md generation
 
+## Priority 6: Docker Isolation
+
+- [ ] Create Fresher devcontainer.json (refs: specs/docker-isolation.md §4.1, §8 Phase 1) ← NEXT
+  - Dependencies: none
+  - Complexity: low
+  - File: `.fresher/docker/devcontainer.json`
+  - Implementation:
+    - Create `.fresher/docker/` directory
+    - Generate devcontainer.json that uses official Claude Code image
+    - Configure volume mounts for bash history and Claude config
+    - Set container environment variables (FRESHER_IN_DOCKER, DEVCONTAINER)
+    - Add NET_ADMIN/NET_RAW capabilities for firewall
+
+- [ ] Create docker-compose.yml for CLI workflow (refs: specs/docker-isolation.md §5.2, §8 Phase 2)
+  - Dependencies: devcontainer.json
+  - Complexity: low
+  - File: `.fresher/docker/docker-compose.yml`
+  - Implementation:
+    - Use official ghcr.io/anthropics/claude-code-devcontainer image
+    - Configure resource limits (memory, CPU)
+    - Set up volume mounts matching devcontainer
+    - Pass through FRESHER_MODE and other env vars
+    - Run firewall init and .fresher/run.sh
+
+- [ ] Add Docker detection logic to run.sh (refs: specs/docker-isolation.md §5.1, §8 Phase 3)
+  - Dependencies: loop-executor (complete)
+  - Complexity: low
+  - File: `.fresher/run.sh`
+  - Implementation:
+    - Check FRESHER_USE_DOCKER config
+    - Detect if already in devcontainer (DEVCONTAINER or FRESHER_IN_DOCKER)
+    - If Docker enabled but not in container, show instructions and exit
+    - Continue normal execution if in container or Docker disabled
+
+- [ ] Update init.sh to generate Docker files (refs: specs/docker-isolation.md §8)
+  - Dependencies: devcontainer.json, docker-compose.yml created
+  - Complexity: low
+  - File: `.fresher-internal/init.sh`
+  - Implementation:
+    - Create `.fresher/docker/` directory during init
+    - Generate devcontainer.json with project-specific settings
+    - Generate docker-compose.yml
+    - Skip if --no-docker flag is set
+
+- [ ] Create firewall overlay script template (refs: specs/docker-isolation.md §5.3, §8 Phase 4)
+  - Dependencies: devcontainer.json
+  - Complexity: low
+  - File: `.fresher/docker/fresher-firewall-overlay.sh`
+  - Implementation:
+    - Template script for adding custom domains to whitelist
+    - Commented out by default
+    - Documentation for common use cases (private npm, internal APIs)
+
 ---
 
 ## Future Work (Not Yet Planned)
@@ -178,4 +231,3 @@ These specs need implementation plans created:
 |------|--------|-------------|
 | plan-verification.md | Planned | Gap analysis comparing plan against specs and code |
 | self-testing.md | Planned | Test scenarios to verify the loop works correctly |
-| docker-isolation.md | Planned | Devcontainer integration using official Claude Code image |
