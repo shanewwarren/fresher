@@ -1,7 +1,7 @@
 # Docker Isolation Specification
 
 **Status:** Planned
-**Version:** 1.0
+**Version:** 2.0
 **Last Updated:** 2025-01-17
 
 ---
@@ -10,20 +10,26 @@
 
 ### Purpose
 
-Docker isolation provides a safety layer when running Claude Code with dangerous permissions (`--dangerously-skip-permissions`). By executing inside a container with resource limits and optional network isolation, the blast radius of unintended actions is contained.
+Docker isolation provides a safety layer when running Claude Code with dangerous permissions (`--dangerously-skip-permissions`). Fresher leverages the **official Claude Code devcontainer** as a foundation, adding loop-specific configuration for iterative execution.
 
 ### Goals
 
-- **Safety** - Limit what Claude can access and modify
-- **Resource control** - Prevent runaway processes from consuming system resources
-- **Reproducibility** - Same environment across different machines
-- **Transparency** - User can see exactly what's happening inside the container
+- **Leverage official tooling** - Use Anthropic's maintained devcontainer rather than custom images
+- **Network security** - Benefit from the built-in firewall with domain whitelisting
+- **Loop integration** - Configure devcontainer for Fresher's iterative execution model
+- **Developer experience** - Support both VS Code devcontainers and CLI-only workflows
 
 ### Non-Goals
 
-- **Complete security** - Docker is not a security boundary; determined code can escape
+- **Custom base images** - Don't maintain separate Dockerfiles when official ones exist
+- **Complete reimplementation** - Don't duplicate firewall or security logic
 - **Production deployment** - This is for development safety, not production isolation
-- **Multi-container orchestration** - Single container execution only
+
+### Reference
+
+The official Claude Code devcontainer is documented at:
+- Docs: https://code.claude.com/docs/en/devcontainer
+- Source: https://github.com/anthropics/claude-code/tree/main/.devcontainer
 
 ---
 
@@ -34,11 +40,10 @@ Docker isolation provides a safety layer when running Claude Code with dangerous
 ```
 .fresher/
 ├── docker/
-│   ├── Dockerfile          # Container image definition
-│   ├── docker-compose.yml  # Orchestration config
-│   └── entrypoint.sh       # Container entry point
-├── run.sh                  # Detects Docker mode
-└── config.sh               # Docker settings
+│   ├── devcontainer.json     # Fresher-customized devcontainer config
+│   └── fresher-overlay.sh    # Additional Fresher setup (optional)
+├── run.sh                    # Detects devcontainer mode
+└── config.sh                 # Docker/devcontainer settings
 ```
 
 ### Execution Flow
@@ -48,139 +53,192 @@ Docker isolation provides a safety layer when running Claude Code with dangerous
 │  fresher build (with FRESHER_USE_DOCKER=true)                   │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  1. Check Docker availability                                   │
-│  2. Build image if needed                                       │
-│  3. Start container with:                                       │
-│     - Volume mounts (project files)                             │
-│     - Resource limits                                           │
-│     - Network configuration                                     │
-│     - Environment variables                                     │
+│  1. Check if already in devcontainer (DEVCONTAINER=true)        │
+│  2. If not, prompt user to open in VS Code devcontainer         │
+│     OR use docker-compose for CLI-only workflow                 │
 │                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  CONTAINER                                               │   │
-│  │  ┌─────────────────────────────────────────────────────┐ │   │
-│  │  │  entrypoint.sh                                      │ │   │
-│  │  │  └── run.sh (loop executor)                         │ │   │
-│  │  │      └── claude (Claude Code CLI)                   │ │   │
-│  │  └─────────────────────────────────────────────────────┘ │   │
-│  │                                                          │   │
-│  │  Mounts:                                                 │   │
-│  │  - /workspace (project root, rw)                         │   │
-│  │  - /workspace/specs (read-only)                          │   │
-│  │                                                          │   │
-│  │  Limits:                                                 │   │
-│  │  - Memory: 4GB                                           │   │
-│  │  - CPU: 2 cores                                          │   │
-│  │  - PIDs: 256                                             │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  4. Stream output to host terminal                              │
-│  5. Cleanup on exit                                             │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  DEVCONTAINER (Official Claude Code Base)                   ││
+│  │                                                             ││
+│  │  Built-in Security:                                         ││
+│  │  ┌─────────────────────────────────────────────────────┐   ││
+│  │  │  iptables firewall + ipset                          │   ││
+│  │  │  ├── Allowed: npm, GitHub, Anthropic API, VS Code   │   ││
+│  │  │  ├── Allowed: DNS (port 53), SSH (port 22)          │   ││
+│  │  │  └── Default: REJECT all other outbound             │   ││
+│  │  └─────────────────────────────────────────────────────┘   ││
+│  │                                                             ││
+│  │  Fresher Execution:                                         ││
+│  │  ┌─────────────────────────────────────────────────────┐   ││
+│  │  │  .fresher/run.sh                                    │   ││
+│  │  │  └── claude --dangerously-skip-permissions          │   ││
+│  │  │      └── (iterative loop execution)                 │   ││
+│  │  └─────────────────────────────────────────────────────┘   ││
+│  │                                                             ││
+│  │  Mounts:                                                    ││
+│  │  - /workspace (project root)                                ││
+│  │  - /commandhistory (persistent bash history)                ││
+│  │  - /home/node/.claude (Claude config persistence)           ││
+│  └─────────────────────────────────────────────────────────────┘│
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 3. Core Types
+## 3. Official Devcontainer Features
 
-### 3.1 Docker Configuration
+The Claude Code devcontainer provides these features out of the box:
 
-Environment variables in `config.sh`:
+### 3.1 Network Security (Firewall)
 
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `FRESHER_USE_DOCKER` | boolean | false | Enable Docker isolation |
-| `FRESHER_DOCKER_IMAGE` | string | `fresher:local` | Docker image to use |
-| `FRESHER_DOCKER_MEMORY` | string | `4g` | Memory limit |
-| `FRESHER_DOCKER_CPUS` | string | `2` | CPU limit |
-| `FRESHER_DOCKER_NETWORK` | string | `bridge` | Network mode |
-| `FRESHER_DOCKER_BUILD` | boolean | true | Auto-build image if missing |
+| Allowed Domain | Purpose |
+|----------------|---------|
+| `api.github.com`, `github.com` | Git operations, API access |
+| `registry.npmjs.org` | npm package installation |
+| `api.anthropic.com` | Claude API calls |
+| `statsig.anthropic.com`, `statsig.com` | Analytics |
+| `sentry.io` | Error tracking |
+| `marketplace.visualstudio.com` | VS Code extensions |
+| `vscode.blob.core.windows.net` | VS Code assets |
+| DNS (port 53), SSH (port 22) | System services |
 
-### 3.2 Mount Configuration
+**Default policy:** REJECT all other outbound connections.
 
-| Host Path | Container Path | Mode | Description |
-|-----------|---------------|------|-------------|
-| `$(pwd)` | `/workspace` | rw | Project root |
-| `$(pwd)/specs` | `/workspace/specs` | ro | Specifications (read-only) |
-| `$(pwd)/.fresher` | `/workspace/.fresher` | rw | Fresher config and state |
-| `~/.claude` | `/home/coder/.claude` | ro | Claude Code config (optional) |
+### 3.2 Pre-installed Tools
 
-### 3.3 Resource Limits
+| Tool | Purpose |
+|------|---------|
+| Node.js 20 | JavaScript runtime |
+| `@anthropic-ai/claude-code` | Claude CLI (globally installed) |
+| git, gh | Version control |
+| zsh + powerlevel10k | Shell with productivity features |
+| fzf | Fuzzy finder |
+| git-delta | Better git diffs |
+| vim, nano | Editors |
+| iptables, ipset | Firewall management |
 
-| Resource | Default | Configurable | Description |
-|----------|---------|--------------|-------------|
-| Memory | 4GB | Yes | Hard memory limit |
-| Memory reservation | 2GB | Yes | Soft memory limit |
-| CPUs | 2 | Yes | CPU core limit |
-| PIDs | 256 | Yes | Process limit (prevents fork bombs) |
+### 3.3 Persistence
+
+| Volume | Path | Purpose |
+|--------|------|---------|
+| `claude-code-bashhistory-*` | `/commandhistory` | Shell history |
+| `claude-code-config-*` | `/home/node/.claude` | Claude configuration |
+
+### 3.4 VS Code Extensions
+
+Pre-configured extensions:
+- `anthropic.claude-code` - Official Claude Code extension
+- `dbaeumer.vscode-eslint` - ESLint integration
+- `esbenp.prettier-vscode` - Code formatting
+- `eamodio.gitlens` - Git visualization
 
 ---
 
-## 4. Behaviors
+## 4. Fresher Configuration
 
-### 4.1 Dockerfile
+### 4.1 Fresher-Specific devcontainer.json
 
-```dockerfile
-# .fresher/docker/Dockerfile
-FROM ubuntu:22.04
+Create `.fresher/docker/devcontainer.json` that extends the official config:
 
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    git \
-    jq \
-    ripgrep \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Claude Code CLI
-RUN curl -fsSL https://claude.ai/install.sh | bash
-
-# Create non-root user
-RUN useradd -m -s /bin/bash -u 1000 coder
-USER coder
-
-# Set working directory
-WORKDIR /workspace
-
-# Copy entrypoint
-COPY --chown=coder:coder entrypoint.sh /home/coder/entrypoint.sh
-RUN chmod +x /home/coder/entrypoint.sh
-
-# Environment
-ENV PATH="/home/coder/.local/bin:$PATH"
-ENV FRESHER_IN_DOCKER="true"
-
-ENTRYPOINT ["/home/coder/entrypoint.sh"]
+```json
+{
+  "name": "Fresher Loop Environment",
+  "build": {
+    "dockerfile": "https://raw.githubusercontent.com/anthropics/claude-code/main/.devcontainer/Dockerfile",
+    "args": {
+      "TZ": "${localEnv:TZ:America/Los_Angeles}",
+      "CLAUDE_CODE_VERSION": "latest"
+    }
+  },
+  "runArgs": [
+    "--cap-add=NET_ADMIN",
+    "--cap-add=NET_RAW"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      }
+    }
+  },
+  "remoteUser": "node",
+  "mounts": [
+    "source=fresher-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
+    "source=fresher-config-${devcontainerId},target=/home/node/.claude,type=volume"
+  ],
+  "containerEnv": {
+    "NODE_OPTIONS": "--max-old-space-size=4096",
+    "FRESHER_IN_DOCKER": "true",
+    "DEVCONTAINER": "true"
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
+  "workspaceFolder": "/workspace",
+  "initializeCommand": "cp -r ${localWorkspaceFolder}/.fresher/docker/init-firewall.sh /tmp/ 2>/dev/null || true",
+  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
+  "waitFor": "postStartCommand"
+}
 ```
 
-### 4.2 Entrypoint Script
+### 4.2 Environment Variables
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `FRESHER_USE_DOCKER` | boolean | `false` | Enable devcontainer mode |
+| `FRESHER_IN_DOCKER` | boolean | (auto) | Set inside container |
+| `DEVCONTAINER` | boolean | (auto) | Standard devcontainer indicator |
+
+### 4.3 Config.sh Settings
 
 ```bash
-#!/bin/bash
-# .fresher/docker/entrypoint.sh
+# .fresher/config.sh
 
-set -e
+#──────────────────────────────────────────────────────────────────
+# Docker/Devcontainer Configuration
+#──────────────────────────────────────────────────────────────────
+export FRESHER_USE_DOCKER="${FRESHER_USE_DOCKER:-false}"
 
-echo "Fresher Docker Container"
-echo "========================"
-echo "User: $(whoami)"
-echo "Workspace: $(pwd)"
-echo "Mode: ${FRESHER_MODE:-not set}"
-echo ""
-
-# Verify mounts
-if [[ ! -d "/workspace/.fresher" ]]; then
-  echo "ERROR: .fresher directory not mounted"
-  exit 1
-fi
-
-# Run the fresher loop
-exec /workspace/.fresher/run.sh "$@"
+# Resource limits (passed to devcontainer)
+export FRESHER_DOCKER_MEMORY="${FRESHER_DOCKER_MEMORY:-4g}"
+export FRESHER_DOCKER_CPUS="${FRESHER_DOCKER_CPUS:-2}"
 ```
 
-### 4.3 Docker Compose Configuration
+---
+
+## 5. Behaviors
+
+### 5.1 Devcontainer Detection in run.sh
+
+```bash
+# In .fresher/run.sh
+
+# Check if we should use Docker isolation
+if [[ "$FRESHER_USE_DOCKER" == "true" ]]; then
+  # Already in a devcontainer?
+  if [[ "$DEVCONTAINER" == "true" ]] || [[ "$FRESHER_IN_DOCKER" == "true" ]]; then
+    echo "Running in devcontainer environment"
+    # Continue with normal execution
+  else
+    echo "Docker isolation enabled but not in devcontainer."
+    echo ""
+    echo "Options:"
+    echo "  1. Open this folder in VS Code and use 'Reopen in Container'"
+    echo "  2. Run: docker compose -f .fresher/docker/docker-compose.yml run --rm fresher"
+    echo ""
+    echo "To disable Docker isolation: export FRESHER_USE_DOCKER=false"
+    exit 1
+  fi
+fi
+
+# Continue with loop execution...
+```
+
+### 5.2 CLI-Only Docker Compose
+
+For users without VS Code, provide a docker-compose.yml:
 
 ```yaml
 # .fresher/docker/docker-compose.yml
@@ -188,219 +246,180 @@ version: '3.8'
 
 services:
   fresher:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: ${FRESHER_DOCKER_IMAGE:-fresher:local}
+    image: ghcr.io/anthropics/claude-code-devcontainer:latest
     container_name: fresher-${FRESHER_MODE:-loop}
 
-    # Interactive mode for Claude Code
+    # Required for firewall setup
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+    # Interactive mode
     stdin_open: true
     tty: true
 
     # Resource limits
     mem_limit: ${FRESHER_DOCKER_MEMORY:-4g}
-    mem_reservation: ${FRESHER_DOCKER_MEMORY_RESERVATION:-2g}
     cpus: ${FRESHER_DOCKER_CPUS:-2}
-    pids_limit: ${FRESHER_DOCKER_PIDS:-256}
-
-    # Network configuration
-    network_mode: ${FRESHER_DOCKER_NETWORK:-bridge}
 
     # Volume mounts
     volumes:
-      - type: bind
-        source: ${PROJECT_DIR:-.}
-        target: /workspace
-      - type: bind
-        source: ${PROJECT_DIR:-.}/specs
-        target: /workspace/specs
-        read_only: true
-      - type: bind
-        source: ${HOME}/.claude
-        target: /home/coder/.claude
-        read_only: true
+      - ${PWD}:/workspace
+      - fresher-bashhistory:/commandhistory
+      - fresher-config:/home/node/.claude
 
     # Environment
     environment:
       - FRESHER_MODE=${FRESHER_MODE:-planning}
       - FRESHER_MAX_ITERATIONS=${FRESHER_MAX_ITERATIONS:-0}
-      - FRESHER_SMART_TERMINATION=${FRESHER_SMART_TERMINATION:-true}
       - FRESHER_IN_DOCKER=true
+      - DEVCONTAINER=true
 
     # User mapping
-    user: "${UID:-1000}:${GID:-1000}"
+    user: node
 
     # Working directory
     working_dir: /workspace
+
+    # Initialize firewall on start
+    command: >
+      bash -c "sudo /usr/local/bin/init-firewall.sh && /workspace/.fresher/run.sh"
+
+volumes:
+  fresher-bashhistory:
+  fresher-config:
 ```
 
-### 4.4 Docker Mode Detection in run.sh
+### 5.3 Firewall Customization (Optional)
+
+If your project needs additional domains (e.g., private npm registry), create an overlay:
 
 ```bash
-# In .fresher/run.sh
+#!/bin/bash
+# .fresher/docker/fresher-firewall-overlay.sh
 
-if [[ "$FRESHER_USE_DOCKER" == "true" ]] && [[ -z "$FRESHER_IN_DOCKER" ]]; then
-  # We're on host, need to launch Docker
-  echo "Starting Fresher in Docker container..."
+# Add custom domains to the whitelist
+# Run AFTER the standard init-firewall.sh
 
-  # Ensure image exists
-  if [[ "$FRESHER_DOCKER_BUILD" == "true" ]]; then
-    if ! docker image inspect "$FRESHER_DOCKER_IMAGE" &>/dev/null; then
-      echo "Building Docker image..."
-      docker build -t "$FRESHER_DOCKER_IMAGE" .fresher/docker/
+CUSTOM_DOMAINS=(
+  "npm.mycompany.com"
+  "api.internal-service.com"
+)
+
+for domain in "${CUSTOM_DOMAINS[@]}"; do
+  ips=$(dig +short A "$domain" 2>/dev/null)
+  for ip in $ips; do
+    if [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      sudo ipset add allowed-domains "$ip" 2>/dev/null || true
+      echo "Added $domain ($ip) to whitelist"
     fi
-  fi
-
-  # Export variables for docker-compose
-  export PROJECT_DIR="$(pwd)"
-  export UID="$(id -u)"
-  export GID="$(id -g)"
-
-  # Run via docker-compose
-  exec docker compose -f .fresher/docker/docker-compose.yml run --rm fresher
-fi
-
-# If we reach here, either Docker is disabled or we're already in container
-# Continue with normal execution...
+  done
+done
 ```
-
-### 4.5 Network Isolation Options
-
-```bash
-# In config.sh
-
-# Option 1: Bridge (default) - container can access network
-export FRESHER_DOCKER_NETWORK="bridge"
-
-# Option 2: None - complete network isolation
-export FRESHER_DOCKER_NETWORK="none"
-
-# Option 3: Host - full network access (less safe)
-export FRESHER_DOCKER_NETWORK="host"
-```
-
-**Recommendation by mode:**
-
-| Mode | Recommended Network | Reason |
-|------|---------------------|--------|
-| Planning | `bridge` | May need to fetch docs |
-| Building | `none` or `bridge` | Depends on if builds need network |
 
 ---
 
-## 5. Security Considerations
+## 6. Security Considerations
 
-### What Docker Isolation Provides
+### What the Official Devcontainer Provides
 
-- **Filesystem boundaries** - Can only access mounted paths
-- **Resource limits** - Cannot exhaust host memory/CPU
-- **Process isolation** - Container processes are separate
-- **User namespacing** - Runs as non-root user
+- **Domain-based firewall** - Only whitelisted services accessible
+- **Default-deny networking** - All non-whitelisted connections rejected
+- **Non-root execution** - Runs as `node` user
+- **Capability restrictions** - Only NET_ADMIN/NET_RAW for firewall setup
 
-### What Docker Does NOT Provide
+### Security Warnings
 
-- **Full security** - Docker is not a security sandbox
-- **Kernel isolation** - Containers share host kernel
-- **Protection from privileged escapes** - Determined code can escape
+From the official documentation:
+
+> While the devcontainer provides substantial protections, no system is completely immune to all attacks. When executed with `--dangerously-skip-permissions`, devcontainers don't prevent a malicious project from exfiltrating anything accessible in the container including Claude Code credentials. **Only use devcontainers when developing with trusted repositories.**
 
 ### Best Practices
 
-1. **Never mount sensitive directories** (`~/.ssh`, `~/.aws`, etc.)
-2. **Use `--network none`** when network isn't needed
-3. **Set resource limits** to prevent resource exhaustion
-4. **Review Docker logs** for unexpected behavior
-5. **Keep images updated** for security patches
+1. **Only use with trusted projects** - The firewall doesn't prevent credential theft
+2. **Review firewall rules** - Check what domains are whitelisted
+3. **Don't mount sensitive directories** - Avoid `~/.ssh`, `~/.aws`, etc.
+4. **Keep devcontainer updated** - Pull latest official images regularly
+5. **Monitor Claude's activities** - Review iteration logs
 
-### Secrets Handling
+### What's NOT Protected
 
-```bash
-# DON'T: Pass secrets as environment variables
-docker run -e API_KEY=secret123 ...  # Visible in docker inspect
-
-# DO: Use secret mounts
-docker run --secret api_key ...  # Mounted at /run/secrets/api_key
-```
-
-For Claude Code API key:
-
-```yaml
-# docker-compose.yml
-services:
-  fresher:
-    secrets:
-      - claude_api_key
-
-secrets:
-  claude_api_key:
-    file: ~/.config/claude/api_key
-```
+- Credentials accessible inside the container
+- Files mounted into the container
+- Side-channel attacks through allowed domains
+- Kernel-level exploits (containers share host kernel)
 
 ---
 
-## 6. Configuration
+## 7. Usage
 
-### Quick Start
+### Quick Start (VS Code)
 
 ```bash
-# Enable Docker isolation
+# 1. Enable Docker in Fresher config
 echo 'export FRESHER_USE_DOCKER=true' >> .fresher/config.sh
 
-# Run normally - will auto-launch in Docker
+# 2. Copy devcontainer config
+mkdir -p .devcontainer
+cp .fresher/docker/devcontainer.json .devcontainer/
+
+# 3. Open in VS Code
+code .
+# Then: Cmd+Shift+P → "Remote-Containers: Reopen in Container"
+
+# 4. Run Fresher inside container
 fresher build
 ```
 
-### Full Configuration Example
+### Quick Start (CLI-Only)
 
 ```bash
-# .fresher/config.sh
+# 1. Enable Docker in Fresher config
+echo 'export FRESHER_USE_DOCKER=true' >> .fresher/config.sh
 
-# Enable Docker
-export FRESHER_USE_DOCKER="${FRESHER_USE_DOCKER:-true}"
-export FRESHER_DOCKER_IMAGE="${FRESHER_DOCKER_IMAGE:-fresher:local}"
-
-# Resource limits
-export FRESHER_DOCKER_MEMORY="${FRESHER_DOCKER_MEMORY:-4g}"
-export FRESHER_DOCKER_MEMORY_RESERVATION="${FRESHER_DOCKER_MEMORY_RESERVATION:-2g}"
-export FRESHER_DOCKER_CPUS="${FRESHER_DOCKER_CPUS:-2}"
-export FRESHER_DOCKER_PIDS="${FRESHER_DOCKER_PIDS:-256}"
-
-# Network (none for maximum isolation)
-export FRESHER_DOCKER_NETWORK="${FRESHER_DOCKER_NETWORK:-none}"
-
-# Auto-build image if missing
-export FRESHER_DOCKER_BUILD="${FRESHER_DOCKER_BUILD:-true}"
+# 2. Run via docker-compose
+docker compose -f .fresher/docker/docker-compose.yml run --rm fresher
 ```
 
-### Disabling Docker
+### Disabling Docker Isolation
 
 ```bash
-# Temporarily disable
+# Temporarily
 FRESHER_USE_DOCKER=false fresher build
 
-# Permanently disable
+# Permanently
 echo 'export FRESHER_USE_DOCKER=false' >> .fresher/config.sh
 ```
 
 ---
 
-## 7. Implementation Phases
+## 8. Implementation Phases
 
 | Phase | Description | Dependencies | Complexity |
 |-------|-------------|--------------|------------|
-| 1 | Dockerfile creation | None | Low |
-| 2 | Docker Compose setup | Phase 1 | Medium |
-| 3 | run.sh Docker detection | loop-executor | Low |
-| 4 | Volume mount configuration | Phase 2 | Medium |
-| 5 | Resource limits | Phase 2 | Low |
-| 6 | Network isolation options | Phase 2 | Low |
-| 7 | Secrets handling | Phase 2 | Medium |
+| 1 | Create Fresher devcontainer.json | None | Low |
+| 2 | Create docker-compose.yml for CLI | Phase 1 | Low |
+| 3 | Add detection logic to run.sh | loop-executor | Low |
+| 4 | Document firewall customization | Phase 1 | Low |
+| 5 | Test with various project types | Phase 1-4 | Medium |
 
 ---
 
-## 8. Open Questions
+## 9. Migration from v1.0
 
-- [ ] Should Docker image be pre-built and distributed, or always built locally?
-- [ ] How to handle GUI tools (if any) inside the container?
+If you previously used the custom Dockerfile approach from v1.0:
+
+1. **Remove custom Dockerfile** - No longer needed
+2. **Update devcontainer.json** - Use the official base image
+3. **Remove manual resource limits** - Handled by devcontainer
+4. **Update firewall customizations** - Use overlay script instead
+
+---
+
+## 10. Open Questions
+
+- [x] ~~Should Docker image be pre-built or always built locally?~~ → Use official image
+- [x] ~~How to handle GUI tools inside the container?~~ → VS Code handles this via devcontainer
 - [ ] Should there be a `fresher docker shell` command for debugging?
-- [ ] How to handle Docker-in-Docker scenarios (if host is already containerized)?
+- [ ] How to handle additional package registries (private npm, cargo, etc.)?
+- [ ] Should Fresher auto-detect when devcontainer.json exists in project root?

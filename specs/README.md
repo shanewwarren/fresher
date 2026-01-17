@@ -33,7 +33,7 @@ Fresher implements the Ralph Loop methodology - an iterative execution model wit
 | Spec | Status | Purpose |
 |------|--------|---------|
 | [lifecycle-hooks.md](./lifecycle-hooks.md) | In Progress | Event hooks for started, next_iteration, finished (basic hooks exist) |
-| [docker-isolation.md](./docker-isolation.md) | Planned | Container-based execution for safety |
+| [docker-isolation.md](./docker-isolation.md) | Planned | Devcontainer integration using official Claude Code image |
 
 ---
 
