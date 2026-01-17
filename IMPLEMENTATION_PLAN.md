@@ -25,17 +25,31 @@ Based on: specs/project-scaffold.md
   - Complexity: low
   - Notes: Add .fresher/logs/ to gitignore, inject specs section into CLAUDE.md
 
-## Priority 2: Interactive Setup
-
-- [ ] Implement interactive wizard (refs: specs/project-scaffold.md §4.2)
-  - Dependencies: basic scaffolding
-  - Complexity: medium
-  - Notes: Prompt for test/build/lint commands, source dir, docker preference
+## Priority 2: Interactive Setup ← NEXT
 
 - [ ] Add remaining init command flags (refs: specs/project-scaffold.md §3.2)
-  - Dependencies: basic scaffolding
+  - Dependencies: none
   - Complexity: low
-  - Notes: --interactive, --no-hooks, --no-docker (--force and --project-type already implemented)
+  - File: `.fresher-internal/init.sh`
+  - Flags to add:
+    - `--interactive, -i` - Enable interactive wizard mode
+    - `--no-hooks` - Skip creating hook scripts
+    - `--no-docker` - Skip Docker-related config entries
+  - Already implemented: `--force`, `--project-type`
+
+- [ ] Implement interactive wizard (refs: specs/project-scaffold.md §4.2)
+  - Dependencies: --interactive flag
+  - Complexity: medium
+  - File: `.fresher-internal/init.sh`
+  - Prompts to implement (with detected defaults):
+    - Test command (e.g., `npm test`)
+    - Build command (e.g., `npm run build`)
+    - Lint command (e.g., `npm run lint`)
+    - Source directory (e.g., `src/`)
+    - Enable Docker isolation? (y/N)
+    - Max iterations (0=unlimited)
+  - Use `read -p` for prompts with defaults in brackets
+  - Show detected project type before prompts
 
 ## Priority 3: Polish
 
