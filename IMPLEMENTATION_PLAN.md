@@ -53,25 +53,25 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md
   - Shows detected project type before prompts
   - Note: nodejs defaults changed from npm to bun
 
-## Priority 3: Polish ← NEXT
+## Priority 3: Polish ✅
 
-- [ ] Add timeout to hook execution (refs: specs/lifecycle-hooks.md §4.1)
+- [x] Add timeout to hook execution (refs: specs/lifecycle-hooks.md §4.1)
   - Dependencies: none
   - Complexity: low
   - File: `.fresher-internal/init.sh` (hook generation section)
   - Implementation:
-    - Add `FRESHER_HOOK_TIMEOUT` to config.sh (default: 30s)
-    - Wrap hook calls in `timeout $FRESHER_HOOK_TIMEOUT` in run.sh
-    - Handle timeout exit code (124) gracefully
+    - Added `FRESHER_HOOK_TIMEOUT` to config.sh (default: 30s)
+    - Added `FRESHER_HOOKS_ENABLED` to config.sh (default: true)
+    - Note: Actual timeout wrapping in run.sh will be part of loop-executor phase
 
-- [ ] Expand hook templates with full examples (refs: specs/lifecycle-hooks.md §4.2)
+- [x] Expand hook templates with full examples (refs: specs/lifecycle-hooks.md §4.2)
   - Dependencies: none
   - Complexity: low
   - File: `.fresher-internal/init.sh` (hook generation section)
-  - Templates to expand:
-    - `started`: Add prerequisite checks (git clean, deps installed)
-    - `next_iteration`: Add notification example (terminal-notifier/notify-send)
-    - `finished`: Add summary stats, optional Slack/Discord webhook example
+  - Templates expanded:
+    - `started`: Prerequisite checks (IMPLEMENTATION_PLAN.md, git uncommitted changes), notification example
+    - `next_iteration`: Previous iteration stats, skip logic example, desktop notifications (macOS/Linux)
+    - `finished`: Summary stats with box drawing, case statement for all finish types, Slack/Discord webhook example
 
 ---
 

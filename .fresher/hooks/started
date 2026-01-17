@@ -1,9 +1,23 @@
 #!/bin/bash
 # .fresher/hooks/started
-# Runs once when the Fresher loop begins
+# Runs once when the Ralph loop begins
 
 echo "Starting Fresher loop in $FRESHER_MODE mode"
 echo "Project: ${FRESHER_PROJECT_DIR:-$(pwd)}"
 echo "Max iterations: ${FRESHER_MAX_ITERATIONS:-unlimited}"
+
+# Example: Check prerequisites
+if [[ ! -f "IMPLEMENTATION_PLAN.md" ]] && [[ "$FRESHER_MODE" == "building" ]]; then
+  echo "ERROR: No IMPLEMENTATION_PLAN.md found. Run planning mode first."
+  exit 2  # Abort
+fi
+
+# Example: Check for uncommitted changes
+if ! git diff --quiet 2>/dev/null; then
+  echo "WARNING: You have uncommitted changes"
+fi
+
+# Example: Send notification (uncomment to enable)
+# curl -s -X POST "$SLACK_WEBHOOK" -d "{\"text\": \"Fresher started: $FRESHER_MODE mode\"}"
 
 exit 0

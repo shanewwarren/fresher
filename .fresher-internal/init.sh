@@ -283,6 +283,12 @@ export FRESHER_LINT_CMD="\${FRESHER_LINT_CMD:-$LINT_CMD}"
 export FRESHER_LOG_DIR="\${FRESHER_LOG_DIR:-.fresher/logs}"
 export FRESHER_SPEC_DIR="\${FRESHER_SPEC_DIR:-specs}"
 export FRESHER_SRC_DIR="\${FRESHER_SRC_DIR:-$SRC_DIR}"
+
+#──────────────────────────────────────────────────────────────────
+# Hook Settings
+#──────────────────────────────────────────────────────────────────
+export FRESHER_HOOK_TIMEOUT="\${FRESHER_HOOK_TIMEOUT:-30}"
+export FRESHER_HOOKS_ENABLED="\${FRESHER_HOOKS_ENABLED:-true}"
 EOF
 
 # Add Docker config section unless --no-docker was specified
@@ -435,11 +441,25 @@ if [[ "$NO_HOOKS" != "true" ]]; then
   cat > .fresher/hooks/started << 'EOF'
 #!/bin/bash
 # .fresher/hooks/started
-# Runs once when the Fresher loop begins
+# Runs once when the Ralph loop begins
 
 echo "Starting Fresher loop in $FRESHER_MODE mode"
 echo "Project: ${FRESHER_PROJECT_DIR:-$(pwd)}"
 echo "Max iterations: ${FRESHER_MAX_ITERATIONS:-unlimited}"
+
+# Example: Check prerequisites
+if [[ ! -f "IMPLEMENTATION_PLAN.md" ]] && [[ "$FRESHER_MODE" == "building" ]]; then
+  echo "ERROR: No IMPLEMENTATION_PLAN.md found. Run planning mode first."
+  exit 2  # Abort
+fi
+
+# Example: Check for uncommitted changes
+if ! git diff --quiet 2>/dev/null; then
+  echo "WARNING: You have uncommitted changes"
+fi
+
+# Example: Send notification (uncomment to enable)
+# curl -s -X POST "$SLACK_WEBHOOK" -d "{\"text\": \"Fresher started: $FRESHER_MODE mode\"}"
 
 exit 0
 EOF
@@ -452,6 +472,26 @@ EOF
 
 echo "Starting iteration ${FRESHER_ITERATION:-1}"
 
+if [[ ${FRESHER_ITERATION:-1} -gt 1 ]]; then
+  echo "Previous iteration: exit=${FRESHER_LAST_EXIT_CODE:-0}, duration=${FRESHER_LAST_DURATION:-0}s"
+  echo "Commits so far: ${FRESHER_COMMITS_MADE:-0}"
+fi
+
+# Example: Skip if no changes needed (building mode only)
+# if [[ "$FRESHER_MODE" == "building" ]]; then
+#   pending=$(grep -c '^\s*-\s*\[\s\]' IMPLEMENTATION_PLAN.md 2>/dev/null || echo "0")
+#   if [[ "$pending" -eq 0 ]]; then
+#     echo "No pending tasks, skipping iteration"
+#     exit 1  # Skip
+#   fi
+# fi
+
+# Example: Desktop notification (macOS)
+# terminal-notifier -title "Fresher" -message "Starting iteration $FRESHER_ITERATION" 2>/dev/null || true
+
+# Example: Desktop notification (Linux)
+# notify-send "Fresher" "Starting iteration $FRESHER_ITERATION" 2>/dev/null || true
+
 exit 0
 EOF
   chmod +x .fresher/hooks/next_iteration
@@ -461,9 +501,53 @@ EOF
 # .fresher/hooks/finished
 # Runs when the loop ends
 
+echo ""
+echo "════════════════════════════════════════"
 echo "Fresher loop finished"
+echo "════════════════════════════════════════"
 echo "Finish type: ${FRESHER_FINISH_TYPE:-unknown}"
 echo "Total iterations: ${FRESHER_TOTAL_ITERATIONS:-0}"
+echo "Total commits: ${FRESHER_TOTAL_COMMITS:-0}"
+echo "Duration: ${FRESHER_DURATION:-0}s"
+echo "════════════════════════════════════════"
+
+# Determine summary message
+case "${FRESHER_FINISH_TYPE:-unknown}" in
+  complete)
+    message="All tasks completed successfully!"
+    ;;
+  manual)
+    message="Loop stopped by user"
+    ;;
+  max_iterations)
+    message="Reached max iterations limit"
+    ;;
+  no_changes)
+    message="No changes made in last iteration"
+    ;;
+  error)
+    message="Loop stopped due to error"
+    ;;
+  hook_abort)
+    message="Loop aborted by hook"
+    ;;
+  *)
+    message="Loop finished: ${FRESHER_FINISH_TYPE:-unknown}"
+    ;;
+esac
+
+echo "$message"
+
+# Example: Desktop notification (macOS)
+# terminal-notifier -title "Fresher Complete" -message "$message" 2>/dev/null || true
+
+# Example: Desktop notification (Linux)
+# notify-send "Fresher Complete" "$message" 2>/dev/null || true
+
+# Example: Slack/Discord webhook (uncomment to enable)
+# curl -s -X POST "$SLACK_WEBHOOK" \
+#   -H "Content-Type: application/json" \
+#   -d "{\"text\": \"Fresher: $message\nIterations: $FRESHER_TOTAL_ITERATIONS\nCommits: $FRESHER_TOTAL_COMMITS\"}"
 
 exit 0
 EOF
