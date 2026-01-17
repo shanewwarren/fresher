@@ -1,0 +1,9 @@
+#!/bin/bash
+# .fresher/hooks/started
+# Runs once when the Fresher loop begins
+
+echo "Starting Fresher loop in $FRESHER_MODE mode"
+echo "Project: ${FRESHER_PROJECT_DIR:-$(pwd)}"
+echo "Max iterations: ${FRESHER_MAX_ITERATIONS:-unlimited}"
+
+exit 0
