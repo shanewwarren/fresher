@@ -1,6 +1,6 @@
 #!/bin/bash
 # Fresher Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/fresher/fresher/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/shanewwarren/fresher/main/install.sh | bash
 #
 # Options:
 #   --version=X.Y.Z   Install specific version (default: latest)
@@ -27,7 +27,7 @@ NC='\033[0m'
 # Configuration
 #──────────────────────────────────────────────────────────────────
 
-GITHUB_REPO="${FRESHER_GITHUB_REPO:-fresher/fresher}"
+GITHUB_REPO="${FRESHER_GITHUB_REPO:-shanewwarren/fresher}"
 INSTALL_VERSION=""
 SOURCE_PATH=""
 FORCE=false
@@ -69,7 +69,7 @@ while [[ $# -gt 0 ]]; do
       cat << EOF
 Fresher Installer
 
-Usage: curl -fsSL https://raw.githubusercontent.com/fresher/fresher/main/install.sh | bash
+Usage: curl -fsSL https://raw.githubusercontent.com/shanewwarren/fresher/main/install.sh | bash
 
 Options:
   --version=X.Y.Z   Install specific version (default: latest)
@@ -82,7 +82,7 @@ Options:
 
 Examples:
   # Install latest version
-  curl -fsSL https://raw.githubusercontent.com/fresher/fresher/main/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/shanewwarren/fresher/main/install.sh | bash
 
   # Install specific version
   curl -fsSL ... | bash -s -- --version=1.2.0

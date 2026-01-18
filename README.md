@@ -18,13 +18,13 @@ Each iteration starts with fresh context, keeping Claude in the "smart zone" for
 ### Installation
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/{org}/fresher/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/shanewwarren/fresher/main/install.sh | bash
 ```
 
 Or inspect before running:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/{org}/fresher/main/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/shanewwarren/fresher/main/install.sh -o install.sh
 cat install.sh
 bash install.sh
 ```
