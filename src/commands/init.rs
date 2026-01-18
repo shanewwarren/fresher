@@ -72,6 +72,14 @@ pub async fn run(force: bool) -> Result<()> {
     create_hook(".fresher/hooks/next_iteration", templates::HOOK_NEXT_ITERATION)?;
     create_hook(".fresher/hooks/finished", templates::HOOK_FINISHED)?;
 
+    // Create Docker files
+    fs::write(".fresher/docker/docker-compose.yml", templates::DOCKER_COMPOSE_TEMPLATE)
+        .context("Failed to write docker-compose.yml")?;
+    fs::write(".fresher/docker/devcontainer.json", templates::DEVCONTAINER_TEMPLATE)
+        .context("Failed to write devcontainer.json")?;
+    create_hook(".fresher/docker/fresher-firewall-overlay.sh", templates::FIREWALL_OVERLAY_TEMPLATE)?;
+    create_hook(".fresher/run.sh", templates::RUN_SCRIPT_TEMPLATE)?;
+
     // Create specs directory if it doesn't exist
     if !Path::new("specs").exists() {
         fs::create_dir_all("specs").context("Failed to create specs directory")?;
@@ -95,6 +103,7 @@ fn create_directory_structure() -> Result<()> {
         ".fresher",
         ".fresher/hooks",
         ".fresher/logs",
+        ".fresher/docker",
     ];
 
     for dir in dirs {

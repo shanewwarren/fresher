@@ -282,3 +282,189 @@ echo "  Finish type: $FRESHER_FINISH_TYPE"
 
 exit 0
 "#;
+
+/// Docker compose template
+pub const DOCKER_COMPOSE_TEMPLATE: &str = r#"# Fresher Docker Compose Configuration
+# For CLI-only workflow (without VS Code devcontainers)
+#
+# Usage:
+#   docker compose -f .fresher/docker/docker-compose.yml run --rm fresher
+
+services:
+  fresher:
+    image: ghcr.io/anthropics/claude-code-devcontainer:latest
+    container_name: fresher-${FRESHER_MODE:-loop}
+
+    # Required for firewall setup
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+    # Interactive mode
+    stdin_open: true
+    tty: true
+
+    # Resource limits
+    mem_limit: ${FRESHER_DOCKER_MEMORY:-4g}
+    cpus: ${FRESHER_DOCKER_CPUS:-2}
+
+    # Volume mounts
+    volumes:
+      - ${PWD}:/workspace
+      - fresher-bashhistory:/commandhistory
+      # OPTION A: API Key - use named volume for isolated credentials
+      # - fresher-config:/home/node/.claude
+      # OPTION B: OAuth/Max Plan - mount host credentials (recommended)
+      - ${HOME}/.claude:/home/node/.claude:ro
+
+    # Environment
+    environment:
+      - FRESHER_MODE=${FRESHER_MODE:-planning}
+      - FRESHER_MAX_ITERATIONS=${FRESHER_MAX_ITERATIONS:-0}
+      - FRESHER_IN_DOCKER=true
+      - DEVCONTAINER=true
+      # For API key users, uncomment:
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+
+    # User mapping
+    user: node
+
+    # Working directory
+    working_dir: /workspace
+
+    # Initialize firewall and run fresher
+    command: >
+      bash -c "sudo /usr/local/bin/init-firewall.sh &&
+               /workspace/.fresher/docker/fresher-firewall-overlay.sh 2>/dev/null || true &&
+               /workspace/.fresher/run.sh"
+
+volumes:
+  fresher-bashhistory:
+  # Only needed for API key users with isolated credentials:
+  # fresher-config:
+"#;
+
+/// Devcontainer.json template
+pub const DEVCONTAINER_TEMPLATE: &str = r#"{
+  "name": "Fresher Loop Environment",
+  "image": "ghcr.io/anthropics/claude-code-devcontainer:latest",
+  "runArgs": [
+    "--cap-add=NET_ADMIN",
+    "--cap-add=NET_RAW"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      }
+    }
+  },
+  "remoteUser": "node",
+  "mounts": [
+    "source=fresher-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
+    "source=fresher-config-${devcontainerId},target=/home/node/.claude,type=volume"
+  ],
+  "containerEnv": {
+    "NODE_OPTIONS": "--max-old-space-size=4096",
+    "FRESHER_IN_DOCKER": "true",
+    "DEVCONTAINER": "true"
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
+  "workspaceFolder": "/workspace",
+  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh && /workspace/.fresher/docker/fresher-firewall-overlay.sh 2>/dev/null || true",
+  "waitFor": "postStartCommand"
+}
+"#;
+
+/// Firewall overlay script template
+pub const FIREWALL_OVERLAY_TEMPLATE: &str = r#"#!/bin/bash
+# Fresher Firewall Overlay Script
+# Run AFTER the standard init-firewall.sh
+#
+# This script adds custom domains to the firewall whitelist.
+# The official devcontainer does NOT whitelist claude.ai, which is
+# required for OAuth authentication (Max/Pro plans).
+
+set -e
+
+#──────────────────────────────────────────────────────────────────
+# OAuth Domains (REQUIRED for Max/Pro plans)
+#──────────────────────────────────────────────────────────────────
+OAUTH_DOMAINS=(
+  "claude.ai"
+  "www.claude.ai"
+  "auth.claude.ai"
+  "console.anthropic.com"
+)
+
+#──────────────────────────────────────────────────────────────────
+# Custom Domains (add your own as needed)
+#──────────────────────────────────────────────────────────────────
+CUSTOM_DOMAINS=(
+  # "npm.mycompany.com"       # Private npm registry
+  # "api.internal-service.com" # Internal APIs
+)
+
+# Combine all domains
+ALL_DOMAINS=("${OAUTH_DOMAINS[@]}" "${CUSTOM_DOMAINS[@]}")
+
+echo "Adding custom domains to firewall whitelist..."
+
+for domain in "${ALL_DOMAINS[@]}"; do
+  # Skip empty/commented entries
+  [[ -z "$domain" || "$domain" == \#* ]] && continue
+
+  ips=$(dig +short A "$domain" 2>/dev/null || true)
+  if [[ -z "$ips" ]]; then
+    echo "  Warning: Could not resolve $domain"
+    continue
+  fi
+
+  for ip in $ips; do
+    if [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      sudo ipset add allowed-domains "$ip" 2>/dev/null || true
+      echo "  Added $domain ($ip)"
+    fi
+  done
+done
+
+echo "Firewall overlay complete."
+"#;
+
+/// Run script template (entry point for Docker)
+pub const RUN_SCRIPT_TEMPLATE: &str = r#"#!/bin/bash
+# Fresher Run Script
+# Entry point for Docker execution
+
+set -e
+
+# Determine mode from environment
+MODE="${FRESHER_MODE:-planning}"
+
+echo "Starting fresher in $MODE mode..."
+
+# Check if fresher is installed
+if ! command -v fresher &> /dev/null; then
+  echo "Error: fresher command not found"
+  echo "Please install fresher or ensure it's in your PATH"
+  exit 1
+fi
+
+# Run the appropriate mode
+case "$MODE" in
+  planning|plan)
+    exec fresher plan
+    ;;
+  building|build)
+    exec fresher build
+    ;;
+  *)
+    echo "Unknown mode: $MODE"
+    echo "Valid modes: planning, building"
+    exit 1
+    ;;
+esac
+"#;
