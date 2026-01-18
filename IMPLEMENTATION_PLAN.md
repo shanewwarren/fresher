@@ -1,10 +1,31 @@
 # Implementation Plan
 
 Generated: 2025-01-17
-Last Updated: 2026-01-18 (Priority 10 integration tests complete)
+Last Updated: 2026-01-18
 Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-executor.md, specs/prompt-templates.md, specs/docker-isolation.md, specs/plan-verification.md, specs/self-testing.md
 
-> **Note:** Fresher was rewritten from Bash to Rust in v2.0.0. Priorities 1-8 below reflect the original Bash implementation which has been superseded. See "Remaining Work" section for current tasks.
+---
+
+## Current Status
+
+**Fresher v2.0** - Rust rewrite is feature-complete with full test coverage.
+
+| Category | Status | Tests |
+|----------|--------|-------|
+| Core Implementation | ✅ Complete | - |
+| Docker Isolation | ✅ Complete | - |
+| Unit Tests | ✅ Complete | 75 |
+| Integration Tests | ✅ Complete | 45 |
+| **Total Tests** | | **120** |
+
+### Next Priority: Documentation (Priority 11) ← **START HERE**
+
+- [ ] Update README.md for v2.0
+- [ ] Add CHANGELOG.md
+
+---
+
+> **Note:** Fresher was rewritten from Bash to Rust in v2.0.0. Priorities 1-8 below reflect the original Bash implementation which has been superseded.
 
 ## Priority 1: fresher init Command ✅
 
@@ -436,25 +457,16 @@ The following features have been fully implemented in Rust:
 ### Priority 10: Rust Testing ✅
 
 - [x] Add unit tests for core modules (refs: specs/self-testing.md)
-  - Dependencies: none
-  - Complexity: medium
-  - Files tested:
-    - `src/config.rs` - Config loading and env overrides (14 tests)
-    - `src/verify.rs` - Spec parsing and coverage analysis (22 tests)
-    - `src/hooks.rs` - Hook execution and exit codes (17 tests)
-    - `src/streaming.rs` - Stream JSON parsing (22 tests)
-  - **Unit tests: 75 passing**
+  - Files tested: `src/config.rs`, `src/verify.rs`, `src/hooks.rs`, `src/streaming.rs`
+  - **75 unit tests passing**
 
 - [x] Add integration tests (refs: specs/self-testing.md)
-  - Dependencies: unit tests ✅
-  - Complexity: medium
-  - Files added:
-    - `tests/init.rs` - 15 tests for init command
-    - `tests/verify.rs` - 13 tests for verify command
-    - `tests/hooks.rs` - 17 tests for hook behavior
-  - **Total: 45 integration tests passing**
+  - Files added: `tests/init.rs`, `tests/verify.rs`, `tests/hooks.rs`
+  - **45 integration tests passing**
 
-### Priority 11: Documentation
+---
+
+### Priority 11: Documentation ← **NEXT**
 
 - [ ] Update README.md for v2.0 (refs: specs/documentation.md)
   - Dependencies: none
@@ -469,6 +481,8 @@ The following features have been fully implemented in Rust:
   - Dependencies: none
   - Complexity: low
   - Content: v2.0.0 release notes (Rust rewrite)
+
+---
 
 ### Priority 12: Spec Updates
 
@@ -493,6 +507,6 @@ The following features have been fully implemented in Rust:
   - Changes: Document `fresher upgrade` and GitHub releases
 
 - [ ] Update self-testing.md for Rust testing
-  - Dependencies: Rust tests implemented
+  - Dependencies: Rust tests implemented ✅
   - Complexity: low
   - Changes: Replace bash test examples with Rust test examples
