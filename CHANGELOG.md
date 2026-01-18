@@ -5,6 +5,26 @@ All notable changes to Fresher will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-01-18
+
+### Added
+
+- `fresher docker shell` command - opens interactive bash shell in devcontainer
+- `fresher docker build` command - builds the devcontainer image
+- Docker isolation enforcement - prevents running plan/build outside container when `docker.use_docker = true`
+- OAuth authentication support for Claude Max/Pro plans in Docker
+- 45 integration tests for init, verify, and hooks modules
+
+### Changed
+
+- Removed legacy Bash implementation files (5,300+ lines of unused code)
+- Updated CLAUDE.md to reflect Rust architecture
+- Updated specs to document Rust v2.0 architecture
+
+### Fixed
+
+- Flaky test in config module due to env variable pollution between parallel tests
+
 ## [2.0.0] - 2026-01-18
 
 ### Changed
