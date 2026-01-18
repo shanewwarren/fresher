@@ -1,7 +1,7 @@
 # Plan Verification Specification
 
-**Status:** Needs Update (Implemented in Rust, spec describes Bash)
-**Version:** 1.0
+**Status:** Implemented
+**Version:** 2.0
 **Last Updated:** 2026-01-18
 **Implementation:** `src/commands/verify.rs`, `src/verify.rs`
 
@@ -11,13 +11,13 @@
 
 ### Purpose
 
-Plan verification provides tooling to validate that `IMPLEMENTATION_PLAN.md` accurately reflects the gap between specifications and the current codebase. It helps catch stale plans, missed requirements, and scope drift.
+Plan verification validates that `IMPLEMENTATION_PLAN.md` accurately reflects the gap between specifications and the current codebase. It produces reports that guide plan updates and track progress.
 
 ### Goals
 
 - **Accuracy** - Ensure plan tasks map to actual spec requirements
 - **Completeness** - Detect requirements not represented in the plan
-- **Freshness** - Identify when plan is stale compared to code changes
+- **Progress tracking** - Show completion status and coverage metrics
 - **Actionable output** - Produce reports that guide plan updates
 
 ### Non-Goals
@@ -30,273 +30,158 @@ Plan verification provides tooling to validate that `IMPLEMENTATION_PLAN.md` acc
 
 ## 2. Architecture
 
-### Component Structure
+### Module Structure
 
 ```
-.fresher/
-├── lib/
-│   └── verify.sh           # Verification logic
-└── bin/
-    └── fresher-verify      # CLI entry point
-
-# Output
-VERIFICATION_REPORT.md      # Generated report (project root)
+src/
+├── commands/
+│   └── verify.rs        # CLI handler and report printing
+└── verify.rs            # Core verification logic and types
 ```
 
 ### Verification Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  fresher verify                                                  │
+│  fresher verify [--json] [--plan <file>]                        │
 ├─────────────────────────────────────────────────────────────────┤
-│  1. Parse specs/*.md → Extract requirements                     │
+│  1. Load configuration                                          │
 │  2. Parse IMPLEMENTATION_PLAN.md → Extract tasks                │
-│  3. Scan codebase → Find implementation evidence                │
+│  3. Parse specs/*.md → Extract requirements                     │
 │                                                                 │
-│  4. Cross-reference:                                            │
-│     - Spec requirements → Plan tasks                            │
-│     - Plan tasks → Code evidence                                │
-│     - Spec requirements → Code evidence                         │
+│  4. Analyze:                                                    │
+│     - Count tasks by status (pending/completed/in-progress)     │
+│     - Identify orphan tasks (no spec refs)                      │
+│     - Calculate coverage per spec                               │
 │                                                                 │
-│  5. Generate VERIFICATION_REPORT.md                             │
-│  6. Return exit code (0=ok, 1=issues found)                     │
+│  5. Generate report (terminal or JSON)                          │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 3. Core Types
+## 3. Core Types (verify.rs)
 
-### 3.1 Requirement Extraction
+### 3.1 Task
 
-Requirements are extracted from spec files using patterns:
+```rust
+pub struct Task {
+    pub description: String,
+    pub status: TaskStatus,
+    pub spec_refs: Vec<String>,
+    pub line_number: usize,
+    pub priority: Option<u32>,
+    pub dependencies: Vec<String>,
+    pub complexity: Option<String>,
+}
 
-| Pattern | Example | Type |
-|---------|---------|------|
-| `### Section` | `### User Authentication` | Section requirement |
-| `- [ ] Task` | `- [ ] Implement login` | Uncompleted task |
-| `- [x] Task` | `- [x] Add logout` | Completed task |
-| `MUST/SHOULD` | `User MUST be authenticated` | RFC 2119 requirement |
-
-### 3.2 Plan Task Structure
-
-Tasks in `IMPLEMENTATION_PLAN.md` follow this format:
-
-```markdown
-- [ ] Task description (refs: specs/filename.md)
-  - Dependencies: task-id, task-id
-  - Complexity: low/medium/high
+pub enum TaskStatus {
+    Pending,      // [ ]
+    Completed,    // [x] or [X]
+    InProgress,   // [~]
+}
 ```
 
-Parsed into:
+### 3.2 Requirement
 
-| Field | Description |
-|-------|-------------|
-| `status` | `pending` or `completed` |
-| `description` | Task text |
-| `spec_ref` | Referenced spec file |
-| `dependencies` | List of dependent task IDs |
-| `complexity` | Estimated complexity |
+```rust
+pub struct Requirement {
+    pub spec_name: String,
+    pub req_type: RequirementType,
+    pub text: String,
+    pub line_number: usize,
+}
 
-### 3.3 Verification Report Structure
+pub enum RequirementType {
+    Section,   // ### Section Header
+    Task,      // - [ ] or - [x] in spec
+    Rfc2119,   // MUST, SHOULD, SHALL, etc.
+}
+```
 
-```markdown
-# Verification Report
+### 3.3 Verification Report
 
-Generated: {timestamp}
-Plan: IMPLEMENTATION_PLAN.md
-Specs: specs/*.md
+```rust
+pub struct VerifyReport {
+    pub total_tasks: usize,
+    pub pending_tasks: usize,
+    pub completed_tasks: usize,
+    pub in_progress_tasks: usize,
+    pub tasks_with_refs: usize,
+    pub orphan_tasks: usize,
+    pub coverage: Vec<CoverageEntry>,
+    pub tasks: Vec<Task>,
+}
 
-## Summary
-
-| Metric | Count |
-|--------|-------|
-| Total spec requirements | 45 |
-| Requirements with tasks | 38 |
-| Requirements without tasks | 7 |
-| Plan tasks | 42 |
-| Completed tasks | 15 |
-| Pending tasks | 27 |
-| Orphan tasks (no spec ref) | 4 |
-
-## Coverage by Spec
-
-| Spec | Requirements | Covered | Coverage |
-|------|--------------|---------|----------|
-| auth.md | 12 | 10 | 83% |
-| api.md | 18 | 16 | 89% |
-| db.md | 15 | 12 | 80% |
-
-## Missing Coverage
-
-Requirements without plan tasks:
-
-### From specs/auth.md
-- [ ] Password reset flow
-- [ ] Session timeout handling
-
-### From specs/api.md
-- [ ] Rate limiting
-- [ ] API versioning
-
-## Orphan Tasks
-
-Plan tasks without spec references:
-
-- [ ] Refactor database queries
-- [ ] Add logging
-
-## Implementation Evidence
-
-Tasks with code evidence found:
-
-| Task | Evidence | Location |
-|------|----------|----------|
-| User login | `authenticateUser` | src/auth/login.ts:45 |
-| API routes | `router.get` | src/routes/index.ts:12 |
-
-## Recommendations
-
-1. Add spec references to orphan tasks or remove if out of scope
-2. Create plan tasks for missing requirements
-3. Review completed tasks with no code evidence
+pub struct CoverageEntry {
+    pub spec_name: String,
+    pub requirement_count: usize,
+    pub task_count: usize,
+    pub coverage_percent: f64,
+}
 ```
 
 ---
 
 ## 4. Behaviors
 
-### 4.1 Requirement Extraction
+### 4.1 Plan Parsing
 
-```bash
-extract_requirements() {
-  local spec_dir="${1:-specs}"
-  local output_file="/tmp/requirements.txt"
+Tasks are extracted from `IMPLEMENTATION_PLAN.md` using regex patterns:
 
-  > "$output_file"
+| Pattern | Purpose | Example |
+|---------|---------|---------|
+| `^##\s+Priority\s+(\d+)` | Extract priority section | `## Priority 1: Core` |
+| `^(\s*)-\s*\[([ xX~])\]` | Match checkbox and status | `- [ ] Task`, `- [x] Done` |
+| `\(refs?:\s*([^)]+)\)` | Extract spec references | `(refs: specs/foo.md)` |
+| `Dependencies:\s*(.+)` | Extract dependencies | `- Dependencies: Module A` |
+| `Complexity:\s*(low\|medium\|high)` | Extract complexity | `- Complexity: medium` |
 
-  find "$spec_dir" -name "*.md" -type f | while read spec_file; do
-    spec_name=$(basename "$spec_file" .md)
+**Status mapping:**
 
-    # Extract section headers as requirements
-    grep -E '^###\s+' "$spec_file" | while read line; do
-      req_text=$(echo "$line" | sed 's/^###\s*//')
-      echo "${spec_name}|section|${req_text}" >> "$output_file"
-    done
+| Checkbox | Status |
+|----------|--------|
+| `[ ]` | Pending |
+| `[x]` or `[X]` | Completed |
+| `[~]` | In Progress |
 
-    # Extract checkbox items
-    grep -E '^\s*-\s*\[[ x]\]' "$spec_file" | while read line; do
-      if [[ $line =~ \[x\] ]]; then
-        status="completed"
-      else
-        status="pending"
-      fi
-      req_text=$(echo "$line" | sed 's/^.*\]\s*//')
-      echo "${spec_name}|task|${status}|${req_text}" >> "$output_file"
-    done
+### 4.2 Requirement Extraction
 
-    # Extract MUST/SHOULD statements
-    grep -iE '\b(MUST|SHOULD|SHALL|REQUIRED)\b' "$spec_file" | while read line; do
-      echo "${spec_name}|rfc2119|${line}" >> "$output_file"
-    done
-  done
+Requirements are extracted from specification files in `specs/`:
 
-  cat "$output_file"
-}
+| Pattern | Type | Example |
+|---------|------|---------|
+| `^###\s+(.+)$` | Section | `### User Authentication` |
+| `^\s*-\s*\[([ xX])\]` | Task | `- [ ] Implement login` |
+| `\b(MUST\|SHOULD\|...)\b` | RFC 2119 | `User MUST be authenticated` |
+
+**RFC 2119 keywords detected:**
+- MUST, MUST NOT
+- REQUIRED, SHALL, SHALL NOT
+- SHOULD, SHOULD NOT
+- RECOMMENDED, MAY, OPTIONAL
+
+### 4.3 Coverage Analysis
+
+Coverage is calculated per spec as:
+
+```rust
+coverage_percent = (task_count / requirement_count * 100).min(100.0)
 ```
 
-### 4.2 Plan Parsing
+Where:
+- `task_count` = tasks referencing the spec
+- `requirement_count` = sections + tasks + RFC2119 statements in spec
 
-```bash
-parse_plan() {
-  local plan_file="${1:-IMPLEMENTATION_PLAN.md}"
-  local output_file="/tmp/plan_tasks.txt"
+### 4.4 Pending Task Detection
 
-  > "$output_file"
+Used by `fresher build` to check if work remains:
 
-  if [[ ! -f "$plan_file" ]]; then
-    echo "ERROR: Plan file not found: $plan_file" >&2
-    return 1
-  fi
-
-  # Extract tasks with their metadata
-  grep -E '^\s*-\s*\[[ x]\]' "$plan_file" | while read line; do
-    if [[ $line =~ \[x\] ]]; then
-      status="completed"
-    else
-      status="pending"
-    fi
-
-    # Extract task description
-    description=$(echo "$line" | sed 's/^.*\]\s*//' | sed 's/(refs:.*)$//')
-
-    # Extract spec reference if present
-    if [[ $line =~ refs:\ *([a-zA-Z0-9_/-]+\.md) ]]; then
-      spec_ref="${BASH_REMATCH[1]}"
-    else
-      spec_ref="none"
-    fi
-
-    echo "${status}|${spec_ref}|${description}" >> "$output_file"
-  done
-
-  cat "$output_file"
-}
-```
-
-### 4.3 Code Evidence Search
-
-```bash
-find_evidence() {
-  local task_description="$1"
-  local src_dir="${2:-src}"
-
-  # Extract keywords from task (nouns and verbs)
-  keywords=$(echo "$task_description" | \
-    grep -oE '\b[A-Za-z]{4,}\b' | \
-    tr '[:upper:]' '[:lower:]' | \
-    sort -u | \
-    head -5)
-
-  # Search for each keyword
-  for keyword in $keywords; do
-    # Search function/class definitions
-    rg -l "(function|class|const|interface|type).*${keyword}" "$src_dir" 2>/dev/null && return 0
-  done
-
-  return 1
-}
-```
-
-### 4.4 Cross-Reference Analysis
-
-```bash
-analyze_coverage() {
-  local requirements_file="$1"
-  local tasks_file="$2"
-
-  echo "## Coverage Analysis"
-  echo ""
-
-  # Count totals
-  total_reqs=$(wc -l < "$requirements_file")
-  total_tasks=$(wc -l < "$tasks_file")
-
-  # Find requirements without tasks
-  echo "### Requirements Without Tasks"
-  while IFS='|' read spec type rest; do
-    # Check if any task references this spec
-    if ! grep -q "$spec" "$tasks_file"; then
-      echo "- [$spec] $rest"
-    fi
-  done < "$requirements_file"
-
-  # Find tasks without spec references
-  echo ""
-  echo "### Tasks Without Spec References"
-  grep '|none|' "$tasks_file" | while IFS='|' read status spec desc; do
-    echo "- [ ] $desc"
-  done
+```rust
+pub fn has_pending_tasks(plan_path: &Path) -> bool {
+    let content = fs::read_to_string(plan_path).unwrap_or_default();
+    let checkbox_re = Regex::new(r"^\s*-\s*\[\s\]").unwrap();
+    content.lines().any(|line| checkbox_re.is_match(line))
 }
 ```
 
@@ -304,87 +189,149 @@ analyze_coverage() {
 
 ## 5. CLI Interface
 
-### Commands
+### Command
 
 ```bash
-fresher verify [options]
+fresher verify [OPTIONS]
 
 Options:
-  --spec-dir DIR       Specification directory (default: specs/)
-  --plan-file FILE     Plan file path (default: IMPLEMENTATION_PLAN.md)
-  --src-dir DIR        Source directory for evidence (default: src/)
-  --output FILE        Report output file (default: VERIFICATION_REPORT.md)
-  --format FORMAT      Output format: markdown|json (default: markdown)
-  --quiet              Only output summary metrics
-  --strict             Exit with error if any issues found
+  --json                Output JSON instead of terminal format
+  --plan <FILE>         Plan file path [default: IMPLEMENTATION_PLAN.md]
+  -h, --help            Print help
 ```
 
-### Exit Codes
+### Terminal Output
 
-| Code | Meaning |
-|------|---------|
-| 0 | Verification passed, no issues |
-| 1 | Verification completed, issues found |
-| 2 | Verification failed (missing files, etc.) |
+```
+Implementation Plan Verification
+========================================
+
+Task Summary
+  Total tasks:     42
+  Completed:       15 (35%)
+  In Progress:     2
+  Pending:         25
+
+Traceability
+  Tasks with refs: 38
+  Orphan tasks:    4
+
+Spec Coverage
+  auth                 [████████░░░░░░░░░░░░] 40% (5 reqs, 2 tasks)
+  api                  [████████████████░░░░] 80% (10 reqs, 8 tasks)
+  database             [████████████████████] 100% (3 reqs, 4 tasks)
+
+Pending Tasks
+  [P1] ○ Implement user login
+  [P1] ○ Add session management
+  [P2] ○ Create API endpoints
+  ... and 22 more...
+
+→ 25 tasks remaining
+```
+
+### JSON Output
+
+```json
+{
+  "total_tasks": 42,
+  "pending_tasks": 25,
+  "completed_tasks": 15,
+  "in_progress_tasks": 2,
+  "tasks_with_refs": 38,
+  "orphan_tasks": 4,
+  "coverage": [
+    {
+      "spec_name": "auth",
+      "requirement_count": 5,
+      "task_count": 2,
+      "coverage_percent": 40.0
+    }
+  ],
+  "tasks": [
+    {
+      "description": "Implement user login",
+      "status": "pending",
+      "spec_refs": ["specs/auth.md"],
+      "line_number": 15,
+      "priority": 1,
+      "dependencies": [],
+      "complexity": "medium"
+    }
+  ]
+}
+```
 
 ---
 
-## 6. Integration Points
+## 6. Error Handling
 
-### Pre-Planning Hook
+| Condition | Behavior |
+|-----------|----------|
+| Plan file not found | Print error, suggest `fresher plan` |
+| Specs directory missing | Return empty coverage |
+| Invalid regex in file | Skip that pattern, continue |
+| Malformed task | Skip task, continue parsing |
 
-Run verification before planning mode to provide context:
+---
+
+## 7. Integration
+
+### Used by Build Command
+
+The `fresher build` command uses `has_pending_tasks()` to determine if there's work to do before starting the loop.
+
+### Hook Integration
 
 ```bash
 # .fresher/hooks/started
-if [[ "$FRESHER_MODE" == "planning" ]]; then
-  fresher verify --quiet
-  echo "Verification complete. See VERIFICATION_REPORT.md for details."
-fi
-```
-
-### Pre-Building Hook
-
-Ensure plan is current before building:
-
-```bash
-# .fresher/hooks/started
-if [[ "$FRESHER_MODE" == "building" ]]; then
-  if ! fresher verify --strict --quiet; then
-    echo "WARNING: Plan may be stale. Consider running planning mode first."
-  fi
-fi
+fresher verify --json > .fresher/logs/verify-report.json
 ```
 
 ### CI Integration
 
 ```yaml
-# .github/workflows/verify.yml
-- name: Verify Implementation Plan
+- name: Check Plan Coverage
   run: |
-    fresher verify --strict --format json > verification.json
-    if [ $? -ne 0 ]; then
-      echo "::warning::Implementation plan has coverage gaps"
+    fresher verify --json > coverage.json
+    ORPHANS=$(jq '.orphan_tasks' coverage.json)
+    if [ "$ORPHANS" -gt 0 ]; then
+      echo "::warning::$ORPHANS tasks without spec references"
     fi
 ```
 
 ---
 
-## 7. Implementation Phases
+## 8. Implementation Notes
 
-| Phase | Description | Dependencies | Complexity |
-|-------|-------------|--------------|------------|
-| 1 | Requirement extraction | None | Medium |
-| 2 | Plan parsing | None | Low |
-| 3 | Cross-reference analysis | Phase 1, 2 | Medium |
-| 4 | Code evidence search | Phase 3 | Medium |
-| 5 | Report generation | Phase 1-4 | Low |
-| 6 | CLI interface | Phase 5 | Low |
+### Key Functions
+
+| Function | Purpose |
+|----------|---------|
+| `parse_plan(path)` | Extract tasks from IMPLEMENTATION_PLAN.md |
+| `extract_requirements(spec_dir)` | Extract requirements from specs/*.md |
+| `analyze_coverage(spec_dir, tasks)` | Calculate coverage metrics |
+| `generate_report(plan, specs)` | Build full VerifyReport |
+| `has_pending_tasks(plan)` | Quick check for pending work |
+| `count_tasks(tasks)` | Count by status |
+
+### Test Coverage
+
+The module includes comprehensive tests for:
+- Empty/missing files
+- All task statuses (pending, completed, in-progress)
+- Spec references (single and multiple)
+- Priority sections
+- Dependencies and complexity parsing
+- Requirement extraction (sections, checkboxes, RFC2119)
+- Coverage calculations
+- Line number tracking
 
 ---
 
-## 8. Open Questions
+## 9. Future Enhancements
 
-- [ ] Should verification track historical coverage trends?
-- [ ] How to handle specs that are intentionally not in current plan (future work)?
-- [ ] Should there be a "fix" mode that auto-generates missing tasks?
+- **Evidence search**: Search codebase for implementation evidence
+- **Historical tracking**: Track coverage trends over time
+- **Auto-task generation**: Suggest tasks for uncovered requirements
+- **Spec freshness**: Detect when specs have changed since planning

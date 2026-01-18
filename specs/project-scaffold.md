@@ -1,7 +1,7 @@
 # Project Scaffold Specification
 
-**Status:** Needs Update (Implemented in Rust, spec describes Bash)
-**Version:** 1.0
+**Status:** Implemented
+**Version:** 2.0
 **Last Updated:** 2026-01-18
 **Implementation:** `src/commands/init.rs`, `src/templates.rs`, `src/config.rs`
 
@@ -11,14 +11,14 @@
 
 ### Purpose
 
-The project scaffold handles initialization of the `.fresher/` folder structure in any project. It detects project type, generates appropriate templates, and optionally installs a global CLI for convenience.
+The project scaffold handles initialization of the `.fresher/` folder structure in any project. It detects project type, generates appropriate templates, and creates a self-contained configuration.
 
 ### Goals
 
 - **Zero-config start** - `fresher init` works in any project with sensible defaults
 - **Project detection** - Auto-detect language/framework for appropriate templates
-- **Interactive setup** - Guide users through configuration choices
 - **Portable** - `.fresher/` folder is self-contained and version-controllable
+- **TOML configuration** - Human-readable, well-documented config format
 
 ### Non-Goals
 
@@ -34,53 +34,50 @@ The project scaffold handles initialization of the `.fresher/` folder structure 
 
 ```
 .fresher/
-├── run.sh                    # Main loop executor (executable)
-├── config.sh                 # Configuration variables
+├── config.toml               # Configuration (TOML format)
+├── AGENTS.md                 # Project-specific knowledge
 ├── PROMPT.planning.md        # Planning mode instructions
 ├── PROMPT.building.md        # Building mode instructions
-├── AGENTS.md                 # Project-specific knowledge
 ├── hooks/                    # Lifecycle hook scripts
 │   ├── started              # Runs when loop starts
 │   ├── next_iteration       # Runs before each iteration
 │   └── finished             # Runs when loop ends
-├── lib/                      # Supporting scripts
-│   ├── termination.sh
-│   ├── streaming.sh
-│   └── state.sh
 └── logs/                     # Iteration logs (gitignored)
-    └── .gitkeep
+
+specs/                        # Created if doesn't exist
+└── README.md
 ```
 
 ### Initialization Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  fresher init                                                    │
+│  fresher init [--force]                                         │
 ├─────────────────────────────────────────────────────────────────┤
 │  1. Check if .fresher/ exists                                   │
-│     → If yes, prompt: overwrite / merge / abort                 │
+│     → If yes and no --force, exit with error                    │
 │                                                                 │
 │  2. Detect project type                                         │
 │     → Check for package.json, Cargo.toml, go.mod, etc.         │
+│     → Get default commands for detected type                    │
 │                                                                 │
-│  3. Interactive configuration (if --interactive)                │
-│     → Ask about test/build commands                             │
-│     → Ask about source directories                              │
-│     → Ask about Docker preference                               │
+│  3. Create directory structure                                  │
+│     → .fresher/                                                 │
+│     → .fresher/hooks/                                           │
+│     → .fresher/logs/                                            │
 │                                                                 │
-│  4. Generate files                                              │
-│     → Create .fresher/ directory structure                      │
-│     → Write templates with detected/configured values           │
-│     → Set executable permissions on scripts                     │
+│  4. Generate files from templates                               │
+│     → config.toml (with detected defaults)                      │
+│     → AGENTS.md (with project name and commands)                │
+│     → PROMPT.planning.md                                        │
+│     → PROMPT.building.md                                        │
+│     → hooks/started, next_iteration, finished (executable)      │
 │                                                                 │
-│  5. Update .gitignore                                           │
-│     → Add .fresher/logs/                                        │
-│     → Add .fresher/.state                                       │
+│  5. Create specs/ if needed                                     │
+│     → mkdir specs/                                              │
+│     → Create specs/README.md                                    │
 │                                                                 │
-│  6. Create/update CLAUDE.md                                     │
-│     → Add Specifications section if missing                     │
-│                                                                 │
-│  7. Print next steps                                            │
+│  6. Print next steps                                            │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -88,273 +85,291 @@ The project scaffold handles initialization of the `.fresher/` folder structure 
 
 ## 3. Core Types
 
-### 3.1 Project Type Detection
+### 3.1 Project Type Detection (config.rs)
 
-| Indicator File | Project Type | Test Command | Build Command |
-|----------------|--------------|--------------|---------------|
-| `package.json` | Node.js | `npm test` | `npm run build` |
-| `Cargo.toml` | Rust | `cargo test` | `cargo build` |
-| `go.mod` | Go | `go test ./...` | `go build ./...` |
-| `pyproject.toml` | Python | `pytest` | `python -m build` |
-| `requirements.txt` | Python (legacy) | `pytest` | - |
-| `Makefile` | Make-based | `make test` | `make` |
-| `*.csproj` | .NET | `dotnet test` | `dotnet build` |
-| `pom.xml` | Java/Maven | `mvn test` | `mvn package` |
-| `build.gradle` | Java/Gradle | `./gradlew test` | `./gradlew build` |
+```rust
+pub enum ProjectType {
+    Bun,
+    NodeJs,
+    Rust,
+    Go,
+    Python,
+    Make,
+    DotNet,
+    Maven,
+    Gradle,
+    Generic,
+}
 
-### 3.2 Init Options
+pub fn detect_project_type() -> ProjectType {
+    if Path::new("bun.lockb").exists() || Path::new("bunfig.toml").exists() {
+        ProjectType::Bun
+    } else if Path::new("package.json").exists() {
+        ProjectType::NodeJs
+    } else if Path::new("Cargo.toml").exists() {
+        ProjectType::Rust
+    } else if Path::new("go.mod").exists() {
+        ProjectType::Go
+    } else if Path::new("pyproject.toml").exists() || Path::new("setup.py").exists() {
+        ProjectType::Python
+    } else if Path::new("Makefile").exists() {
+        ProjectType::Make
+    // ... etc
+    } else {
+        ProjectType::Generic
+    }
+}
+```
+
+**Detection Priority:**
+
+| Priority | Indicator File | Project Type | Test Command | Build Command | Lint Command |
+|----------|----------------|--------------|--------------|---------------|--------------|
+| 1 | `bun.lockb` or `bunfig.toml` | Bun | `bun test` | `bun run build` | `bun run lint` |
+| 2 | `package.json` | Node.js | `npm test` | `npm run build` | `npm run lint` |
+| 3 | `Cargo.toml` | Rust | `cargo test` | `cargo build` | `cargo clippy` |
+| 4 | `go.mod` | Go | `go test ./...` | `go build` | `go fmt` |
+| 5 | `pyproject.toml` / `setup.py` | Python | `pytest` | `python -m build` | `ruff check` |
+| 6 | `Makefile` | Make | `make test` | `make build` | `make lint` |
+| 7 | `*.csproj` / `*.sln` | .NET | `dotnet test` | `dotnet build` | - |
+| 8 | `pom.xml` | Maven | `mvn test` | `mvn clean package` | `mvn checkstyle:check` |
+| 9 | `build.gradle` | Gradle | `gradle test` | `gradle build` | `gradle check` |
+| - | (none) | Generic | - | - | - |
+
+### 3.2 Command Line Interface
 
 ```bash
-fresher init [options]
+fresher init [OPTIONS]
 
 Options:
-  --interactive, -i    Run interactive setup wizard
-  --force, -f          Overwrite existing .fresher/ without prompting
-  --no-hooks           Skip creating hook scripts
-  --no-docker          Skip Docker-related files
-  --project-type TYPE  Override auto-detected project type
-```
-
-### 3.3 Configuration Structure
-
-Generated `config.sh`:
-
-```bash
-#!/bin/bash
-# Fresher configuration for {project_name}
-# Generated: {timestamp}
-# Project type: {detected_type}
-
-#──────────────────────────────────────────────────────────────────
-# Mode Configuration
-#──────────────────────────────────────────────────────────────────
-export FRESHER_MODE="${FRESHER_MODE:-planning}"
-
-#──────────────────────────────────────────────────────────────────
-# Termination Settings
-#──────────────────────────────────────────────────────────────────
-export FRESHER_MAX_ITERATIONS="${FRESHER_MAX_ITERATIONS:-0}"
-export FRESHER_SMART_TERMINATION="${FRESHER_SMART_TERMINATION:-true}"
-
-#──────────────────────────────────────────────────────────────────
-# Claude Code Settings
-#──────────────────────────────────────────────────────────────────
-export FRESHER_DANGEROUS_PERMISSIONS="${FRESHER_DANGEROUS_PERMISSIONS:-true}"
-export FRESHER_MAX_TURNS="${FRESHER_MAX_TURNS:-50}"
-export FRESHER_MODEL="${FRESHER_MODEL:-sonnet}"
-
-#──────────────────────────────────────────────────────────────────
-# Project Commands (detected: {detected_type})
-#──────────────────────────────────────────────────────────────────
-export FRESHER_TEST_CMD="${FRESHER_TEST_CMD:-{detected_test_cmd}}"
-export FRESHER_BUILD_CMD="${FRESHER_BUILD_CMD:-{detected_build_cmd}}"
-export FRESHER_LINT_CMD="${FRESHER_LINT_CMD:-{detected_lint_cmd}}"
-
-#──────────────────────────────────────────────────────────────────
-# Paths
-#──────────────────────────────────────────────────────────────────
-export FRESHER_LOG_DIR="${FRESHER_LOG_DIR:-.fresher/logs}"
-export FRESHER_SPEC_DIR="${FRESHER_SPEC_DIR:-specs}"
-export FRESHER_SRC_DIR="${FRESHER_SRC_DIR:-{detected_src_dir}}"
-
-#──────────────────────────────────────────────────────────────────
-# Docker (optional)
-#──────────────────────────────────────────────────────────────────
-export FRESHER_USE_DOCKER="${FRESHER_USE_DOCKER:-false}"
-export FRESHER_DOCKER_IMAGE="${FRESHER_DOCKER_IMAGE:-fresher:local}"
+  -f, --force    Overwrite existing .fresher/ without prompting
+  -h, --help     Print help
 ```
 
 ---
 
-## 4. Behaviors
+## 4. Generated Files
 
-### 4.1 Project Type Detection
+### 4.1 config.toml
 
-```bash
-detect_project_type() {
-  local dir="${1:-.}"
+```toml
+# Fresher configuration
+# Generated: 2026-01-18T10:00:00Z
+# Project type: rust
 
-  if [[ -f "$dir/package.json" ]]; then
-    echo "nodejs"
-  elif [[ -f "$dir/Cargo.toml" ]]; then
-    echo "rust"
-  elif [[ -f "$dir/go.mod" ]]; then
-    echo "go"
-  elif [[ -f "$dir/pyproject.toml" ]] || [[ -f "$dir/requirements.txt" ]]; then
-    echo "python"
-  elif [[ -f "$dir/Makefile" ]]; then
-    echo "make"
-  elif ls "$dir"/*.csproj &>/dev/null; then
-    echo "dotnet"
-  elif [[ -f "$dir/pom.xml" ]]; then
-    echo "maven"
-  elif [[ -f "$dir/build.gradle" ]]; then
-    echo "gradle"
-  else
-    echo "generic"
-  fi
+[fresher]
+mode = "planning"
+max_iterations = 0
+smart_termination = true
+dangerous_permissions = true
+max_turns = 50
+model = "sonnet"
+
+[commands]
+test = "cargo test"
+build = "cargo build"
+lint = "cargo clippy"
+
+[paths]
+log_dir = ".fresher/logs"
+spec_dir = "specs"
+src_dir = "src"
+
+[hooks]
+enabled = true
+timeout = 30
+
+[docker]
+use_docker = false
+memory = "4g"
+cpus = "2"
+```
+
+### 4.2 AGENTS.md
+
+Project-specific knowledge file with detected commands:
+
+```markdown
+# Project: {project_name}
+
+## Commands
+
+### Testing
+{test_command}
+
+### Building
+{build_command}
+
+### Linting
+{lint_command}
+
+## Code Patterns
+
+### File Organization
+- Source code: `{src_dir}/`
+- Tests: `tests/` or `__tests__/`
+- Specifications: `{spec_dir}/`
+
+### Naming Conventions
+<!-- Describe your project's naming conventions here -->
+
+### Architecture Notes
+<!-- Describe key architectural patterns here -->
+
+## Operational Knowledge
+
+### Known Issues
+<!-- Document any gotchas here -->
+
+### Dependencies
+<!-- List key dependencies and their purposes here -->
+
+## Fresher Notes
+
+*This section is updated by the Ralph Loop as it learns about the project.*
+```
+
+### 4.3 Prompt Templates
+
+**PROMPT.planning.md** - Instructions for planning mode:
+- Read all specifications in `specs/`
+- Explore the codebase
+- Identify gaps between specs and implementation
+- Create/update `IMPLEMENTATION_PLAN.md`
+- **Do NOT implement anything or make commits**
+
+**PROMPT.building.md** - Instructions for building mode:
+- Read `IMPLEMENTATION_PLAN.md`
+- Select highest priority incomplete task
+- Investigate relevant code
+- Implement the task
+- Validate with tests and builds
+- Update plan and commit changes
+
+### 4.4 Hook Scripts
+
+Executable bash scripts with standard exit code conventions:
+
+| Hook | When | Exit 0 | Exit 1 | Exit 2 |
+|------|------|--------|--------|--------|
+| `started` | Loop begins | Continue | - | Abort |
+| `next_iteration` | Before each iteration | Continue | Skip iteration | Abort |
+| `finished` | Loop ends | - | - | - |
+
+**Environment variables available to hooks:**
+
+| Variable | Description |
+|----------|-------------|
+| `FRESHER_ITERATION` | Current iteration number |
+| `FRESHER_TOTAL_ITERATIONS` | Total iterations (in finished) |
+| `FRESHER_TOTAL_COMMITS` | Total commits made |
+| `FRESHER_DURATION` | Duration in seconds |
+| `FRESHER_FINISH_TYPE` | How loop ended (in finished) |
+| `FRESHER_MODE` | Current mode |
+| `FRESHER_PROJECT_DIR` | Project root |
+
+---
+
+## 5. Implementation (init.rs)
+
+### Main Flow
+
+```rust
+pub async fn run(force: bool) -> Result<()> {
+    let fresher_dir = Path::new(".fresher");
+
+    // Check if already initialized
+    if fresher_dir.exists() && !force {
+        bail!(".fresher/ already exists. Use --force to overwrite.");
+    }
+
+    // Detect project type
+    let project_type = detect_project_type();
+    let commands = project_type.default_commands();
+
+    // Create directory structure
+    create_directory_structure()?;
+
+    // Generate files from templates
+    // - config.toml
+    // - AGENTS.md
+    // - PROMPT.planning.md
+    // - PROMPT.building.md
+    // - hooks/started, next_iteration, finished
+
+    // Create specs/ if needed
+    if !Path::new("specs").exists() {
+        fs::create_dir_all("specs")?;
+        fs::write("specs/README.md", "# Specifications\n...")?;
+    }
+
+    println!("Initialized .fresher/ directory");
+    // Print next steps...
+
+    Ok(())
 }
 ```
 
-### 4.2 Interactive Setup
+### Hook Creation
 
-When `--interactive` flag is used:
+Hooks are created with executable permissions:
+
+```rust
+fn create_hook(path: &str, content: &str) -> Result<()> {
+    fs::write(path, content)?;
+
+    // Make executable (Unix)
+    let mut perms = fs::metadata(path)?.permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(path, perms)?;
+
+    Ok(())
+}
+```
+
+---
+
+## 6. Output
+
+### Success Output
 
 ```
-╔════════════════════════════════════════════════════════════════╗
-║                    Fresher Setup Wizard                         ║
-╚════════════════════════════════════════════════════════════════╝
+Detected project type: rust
 
-Detected project type: nodejs
-
-? Test command [npm test]:
-? Build command [npm run build]:
-? Lint command [npm run lint]:
-? Source directory [src/]:
-? Enable Docker isolation? [y/N]:
-? Max iterations (0=unlimited) [0]:
-
-Creating .fresher/ structure...
-✓ Created run.sh
-✓ Created config.sh
-✓ Created PROMPT.planning.md
-✓ Created PROMPT.building.md
-✓ Created AGENTS.md
-✓ Created hooks/
-✓ Updated .gitignore
+Initialized .fresher/ directory
 
 Next steps:
-  1. Review .fresher/AGENTS.md and add project-specific knowledge
-  2. Create specs in specs/ directory
-  3. Run: fresher plan
+  1. Review .fresher/config.toml and adjust settings
+  2. Add specifications to specs/
+  3. Run 'fresher plan' to create an implementation plan
+  4. Run 'fresher build' to implement tasks
 ```
 
-### 4.3 CLAUDE.md Integration
+### Error: Already Initialized
 
-If `CLAUDE.md` exists but lacks a Specifications section:
-
-```bash
-inject_specs_section() {
-  local claude_md="CLAUDE.md"
-
-  if [[ ! -f "$claude_md" ]]; then
-    # Create minimal CLAUDE.md
-    cat > "$claude_md" << 'EOF'
-# Project Guidelines
-
-## Specifications
-
-**IMPORTANT:** Before implementing any feature, consult `specs/README.md`.
-
-- **Assume NOT implemented.** Specs describe intent; code describes reality.
-- **Check the codebase first.** Search actual code before concluding.
-- **Use specs as guidance.** Follow design patterns in relevant spec.
-- **Spec index:** `specs/README.md` lists all specs by category.
-EOF
-    return
-  fi
-
-  # Check if section exists
-  if grep -q "## Specifications" "$claude_md"; then
-    return
-  fi
-
-  # Insert after first heading or at start
-  # (implementation uses sed or awk)
-}
 ```
-
-### 4.4 Global CLI Installation
-
-Optional global CLI for convenience:
-
-```bash
-# Install globally
-fresher install-global
-
-# Creates wrapper script at ~/.local/bin/fresher (or /usr/local/bin)
-# that detects .fresher/ in current directory and runs it
-```
-
-Global CLI wrapper:
-
-```bash
-#!/bin/bash
-# fresher - global CLI wrapper
-
-FRESHER_DIR=".fresher"
-
-if [[ ! -d "$FRESHER_DIR" ]]; then
-  echo "Error: No .fresher/ directory found in current directory"
-  echo "Run 'fresher init' to initialize Fresher in this project"
-  exit 1
-fi
-
-case "${1:-}" in
-  init)
-    shift
-    exec "$0-init" "$@"
-    ;;
-  plan|planning)
-    export FRESHER_MODE="planning"
-    exec "$FRESHER_DIR/run.sh"
-    ;;
-  build|building)
-    export FRESHER_MODE="building"
-    exec "$FRESHER_DIR/run.sh"
-    ;;
-  *)
-    echo "Usage: fresher <command>"
-    echo ""
-    echo "Commands:"
-    echo "  init      Initialize Fresher in current directory"
-    echo "  plan      Run planning mode"
-    echo "  build     Run building mode"
-    exit 1
-    ;;
-esac
+Error: .fresher/ already exists. Use --force to overwrite, or manually remove it first.
 ```
 
 ---
 
-## 5. Security Considerations
+## 7. Files Not Created
 
-### Executable Permissions
+The following are **not** generated by `fresher init`:
 
-- `run.sh` must be executable (`chmod +x`)
-- Hook scripts must be executable
-- Warn if permissions are incorrect
-
-### Gitignore Entries
-
-Automatically add to `.gitignore`:
-
-```
-# Fresher
-.fresher/logs/
-.fresher/.state
-```
-
-These prevent:
-- Log accumulation in repo
-- State file conflicts between developers
+| File | Reason |
+|------|--------|
+| `.gitignore` entries | User manages their own gitignore |
+| `CLAUDE.md` | Project-specific, user creates |
+| `IMPLEMENTATION_PLAN.md` | Created by `fresher plan` |
+| `.fresher/.state` | Created during runtime |
+| Docker files | Created separately if needed |
 
 ---
 
-## 6. Implementation Phases
+## 8. Future Enhancements
 
-| Phase | Description | Dependencies | Complexity |
-|-------|-------------|--------------|------------|
-| 1 | Basic init with detection | None | Medium |
-| 2 | Template generation | prompt-templates | Low |
-| 3 | Interactive wizard | Phase 1 | Medium |
-| 4 | CLAUDE.md integration | Phase 1 | Low |
-| 5 | Global CLI installation | Phase 1-4 | Medium |
-
----
-
-## 7. Open Questions
-
-- [ ] Should `fresher init` create a `specs/` directory too?
-- [ ] How to handle monorepos with multiple project types?
-- [ ] Should there be a `fresher upgrade` command for updating templates?
+- **Interactive mode** (`--interactive`): Guide users through configuration
+- **Template customization**: Allow user-provided templates
+- **Monorepo support**: Multiple project types in subdirectories
+- **Update command**: Update templates while preserving custom config

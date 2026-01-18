@@ -1,7 +1,7 @@
-# Installer Specification
+# Installation and Upgrade Specification
 
-**Status:** Needs Update (Implemented as `fresher upgrade`, spec describes curl installer)
-**Version:** 1.0
+**Status:** Implemented
+**Version:** 2.0
 **Last Updated:** 2026-01-18
 **Implementation:** `src/commands/upgrade.rs`, `src/upgrade.rs`
 
@@ -11,252 +11,306 @@
 
 ### Purpose
 
-The installer provides a one-command mechanism to add Fresher to any project and upgrade existing installations. It fetches versioned releases from GitHub, handles the core vs custom file distinction, and preserves user customizations during upgrades.
+Fresher is distributed as a compiled Rust binary with self-upgrade capabilities. Users can install via `cargo install` or download prebuilt binaries from GitHub releases. The upgrade command fetches the latest release and replaces the running binary.
 
 ### Goals
 
-- **One-command install** - Users can add Fresher with a single curl/bash command
-- **Clean upgrades** - Core files are replaced while custom files are preserved
-- **Version awareness** - Track installed version and detect available upgrades
-- **Offline capability** - Support local installation for development
+- **Multiple installation methods** - Cargo install, binary download, or build from source
+- **Self-upgrading binary** - The `fresher upgrade` command updates itself
+- **Cross-platform support** - macOS (Intel/Apple Silicon), Linux (x64/ARM64)
+- **Version awareness** - Check installed version against latest release
 
 ### Non-Goals
 
-- **Package manager distribution** - No npm/brew/apt packages (keep it simple)
+- **Package manager distribution** - No Homebrew/apt packages (initially)
 - **Auto-updates** - Users must explicitly run upgrade command
-- **Rollback** - No built-in version downgrade (users can reinstall specific version)
+- **Rollback** - No built-in version downgrade (reinstall specific version)
+- **Windows support** - Not yet implemented
 
 ---
 
-## 2. Architecture
+## 2. Installation Methods
 
-### Component Structure
+### 2.1 Cargo Install (Recommended)
 
-```
-.fresher/
-├── VERSION                   # Installed version tracking
-├── run.sh                    # Core: replaced on upgrade
-├── config.sh                 # Mixed: values preserved
-├── AGENTS.md                 # Custom: preserved
-├── PROMPT.planning.md        # Core: replaced
-├── PROMPT.building.md        # Core: replaced
-├── hooks/                    # Custom: preserved
-│   ├── started
-│   ├── next_iteration
-│   └── finished
-├── lib/                      # Core: replaced
-├── bin/                      # Core: replaced
-├── docker/                   # Core: replaced
-└── tests/                    # Core: replaced
+```bash
+cargo install fresher
 ```
 
-### File Classification
+**Requirements:**
+- Rust toolchain installed
+- Builds from source on the user's machine
 
-| Classification | Files | Upgrade Behavior |
-|----------------|-------|------------------|
-| **Core** | run.sh, PROMPT.*.md, lib/*, bin/*, docker/*, tests/* | Always replaced |
-| **Custom** | AGENTS.md, hooks/* | Never touched |
-| **Mixed** | config.sh | Template replaced, values preserved |
-| **Generated** | .state, logs/* | Ignored (gitignored) |
-| **Metadata** | VERSION | Updated to new version |
+### 2.2 Binary Download
 
-### Installation Flow
+Download prebuilt binaries from GitHub releases:
+
+```bash
+# macOS Apple Silicon
+curl -L https://github.com/shanewwarren/fresher/releases/latest/download/fresher-aarch64-apple-darwin.tar.gz | tar xz
+sudo mv fresher /usr/local/bin/
+
+# macOS Intel
+curl -L https://github.com/shanewwarren/fresher/releases/latest/download/fresher-x86_64-apple-darwin.tar.gz | tar xz
+sudo mv fresher /usr/local/bin/
+
+# Linux x64
+curl -L https://github.com/shanewwarren/fresher/releases/latest/download/fresher-x86_64-unknown-linux-gnu.tar.gz | tar xz
+sudo mv fresher /usr/local/bin/
+
+# Linux ARM64
+curl -L https://github.com/shanewwarren/fresher/releases/latest/download/fresher-aarch64-unknown-linux-gnu.tar.gz | tar xz
+sudo mv fresher /usr/local/bin/
+```
+
+### 2.3 Build from Source
+
+```bash
+git clone https://github.com/shanewwarren/fresher.git
+cd fresher
+cargo build --release
+cp target/release/fresher /usr/local/bin/
+```
+
+---
+
+## 3. Architecture
+
+### Module Structure
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Fetch Release  │────▶│  Extract Files  │────▶│  Detect Project │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-                                                         │
-                                                         ▼
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Write VERSION  │◀────│  Run Init Hook  │◀────│  Generate Config│
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+src/
+├── commands/
+│   └── upgrade.rs        # CLI handler for upgrade command
+└── upgrade.rs            # Core upgrade logic
 ```
 
 ### Upgrade Flow
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Read VERSION   │────▶│  Fetch Release  │────▶│  Backup Config  │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-                                                         │
-                                                         ▼
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Update VERSION │◀────│  Restore Values │◀────│  Replace Core   │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  fresher upgrade [--check]                                       │
+├─────────────────────────────────────────────────────────────────┤
+│  1. Get installed version from CARGO_PKG_VERSION                │
+│  2. Fetch latest release from GitHub API                        │
+│  3. Compare versions (semver)                                   │
+│                                                                 │
+│  If --check:                                                    │
+│     Display versions and exit                                   │
+│                                                                 │
+│  If upgrade needed:                                             │
+│  4. Determine platform (os + arch)                              │
+│  5. Download release tarball for platform                       │
+│  6. Extract binary to temp directory                            │
+│  7. Replace current executable                                  │
+│  8. Set executable permissions                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 3. Core Types
+## 4. Core Types
 
-### 3.1 VERSION File
+### 4.1 Version Management
 
-Plain text file containing the installed Fresher version.
+Version is retrieved from Cargo.toml at compile time:
 
-```
-1.2.3
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| version | semver string | Installed version (e.g., "1.2.3") |
-
-### 3.2 Config Values
-
-Values extracted from config.sh during upgrade.
-
-```bash
-# Variables to preserve during upgrade
-FRESHER_TEST_CMD="npm test"
-FRESHER_BUILD_CMD="npm run build"
-FRESHER_LINT_CMD="npm run lint"
-FRESHER_SRC_DIR="src"
-FRESHER_MAX_ITERATIONS="50"
+```rust
+pub fn get_installed_version() -> Result<Version> {
+    let version_str = env!("CARGO_PKG_VERSION");
+    Version::parse(version_str)
+}
 ```
 
-| Variable | Type | Description |
-|----------|------|-------------|
-| FRESHER_TEST_CMD | string | Command to run tests |
-| FRESHER_BUILD_CMD | string | Command to build project |
-| FRESHER_LINT_CMD | string | Command to run linter |
-| FRESHER_SRC_DIR | string | Source directory path |
-| FRESHER_MAX_ITERATIONS | number | Max loop iterations |
+### 4.2 Platform Detection
 
----
-
-## 4. API / Behaviors
-
-### 4.1 Install Command
-
-**Purpose:** Install Fresher into the current project
-
-```bash
-# Install latest release
-curl -fsSL https://raw.githubusercontent.com/{org}/fresher/main/install.sh | bash
-
-# Install specific version
-curl -fsSL https://raw.githubusercontent.com/{org}/fresher/main/install.sh | bash -s -- --version=1.2.3
-
-# Install from local development copy
-./install.sh --source=/path/to/fresher
+```rust
+fn get_platform() -> Result<&'static str> {
+    match (env::consts::OS, env::consts::ARCH) {
+        ("macos", "x86_64") => Ok("x86_64-apple-darwin"),
+        ("macos", "aarch64") => Ok("aarch64-apple-darwin"),
+        ("linux", "x86_64") => Ok("x86_64-unknown-linux-gnu"),
+        ("linux", "aarch64") => Ok("aarch64-unknown-linux-gnu"),
+        _ => bail!("Unsupported platform"),
+    }
+}
 ```
 
-**Flags:**
+### 4.3 GitHub API Integration
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--version=X.Y.Z` | Install specific version | latest |
-| `--source=PATH` | Install from local directory | GitHub |
-| `--force` | Overwrite existing installation | false |
-| `--dry-run` | Show what would be installed | false |
+```rust
+const GITHUB_REPO: &str = "shanewwarren/fresher";
+const GITHUB_API_URL: &str = "https://api.github.com";
 
-**Exit Codes:**
-
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | Installation failed |
-| 2 | Already installed (use --force or upgrade) |
-| 3 | Network error |
-
-### 4.2 Upgrade Command
-
-**Purpose:** Upgrade existing Fresher installation
-
-```bash
-# Upgrade to latest
-.fresher/bin/fresher upgrade
-
-# Upgrade to specific version
-.fresher/bin/fresher upgrade --version=1.3.0
-
-# Check for updates without installing
-.fresher/bin/fresher upgrade --check
-```
-
-**Flags:**
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--version=X.Y.Z` | Upgrade to specific version | latest |
-| `--check` | Only check for updates | false |
-| `--dry-run` | Show what would change | false |
-
-**Upgrade Process:**
-
-1. Read current VERSION
-2. Fetch target version manifest
-3. Compare versions (skip if same unless --force)
-4. Extract current config.sh values
-5. Replace all core files
-6. Generate new config.sh with preserved values
-7. Update VERSION file
-8. Print changelog summary
-
-### 4.3 Version Check
-
-**Purpose:** Display installed and available versions
-
-```bash
-.fresher/bin/fresher version
-
-# Output:
-# Installed: 1.2.3
-# Latest:    1.3.0
-# Upgrade available! Run: .fresher/bin/fresher upgrade
+// Fetch latest release
+let url = format!("{}/repos/{}/releases/latest", GITHUB_API_URL, GITHUB_REPO);
 ```
 
 ---
 
-## 5. Configuration
+## 5. CLI Interface
 
-| Variable | Type | Description | Default |
-|----------|------|-------------|---------|
-| `FRESHER_RELEASE_URL` | string | GitHub releases API URL | `https://api.github.com/repos/{org}/fresher/releases` |
-| `FRESHER_RAW_URL` | string | Raw content URL for install script | `https://raw.githubusercontent.com/{org}/fresher` |
+### fresher upgrade
+
+Upgrades the Fresher binary to the latest version:
+
+```bash
+fresher upgrade [OPTIONS]
+
+Options:
+  --check    Check for updates without installing
+  -h, --help Print help
+```
+
+### Check Mode Output
+
+```
+Installed version: 1.2.3
+Checking for updates... update available!
+
+  1.2.3 → 1.3.0
+
+Run fresher upgrade to upgrade
+```
+
+### Upgrade Output
+
+```
+Upgrading from 1.2.3 to 1.3.0...
+Downloading fresher-aarch64-apple-darwin.tar.gz...
+Successfully upgraded to 1.3.0
+
+✓ Successfully upgraded to version 1.3.0
+```
+
+### Already Up-to-Date
+
+```
+Already at the latest version (1.3.0)
+```
 
 ---
 
-## 6. Security Considerations
+## 6. Behaviors
 
-### Script Verification
+### 6.1 Version Check
 
-- Install script should be auditable (single file, readable)
-- Consider adding checksum verification for releases
-- Warn users about piping curl to bash (document alternative)
+```rust
+pub async fn check_upgrade() -> Result<Option<Version>> {
+    let installed = get_installed_version()?;
+    let latest = get_latest_version().await?;
 
-### Alternative Installation
-
-```bash
-# Download and inspect before running
-curl -fsSL https://raw.githubusercontent.com/{org}/fresher/main/install.sh -o install.sh
-cat install.sh  # Review the script
-bash install.sh
+    if latest > installed {
+        Ok(Some(latest))
+    } else {
+        Ok(None)
+    }
+}
 ```
+
+### 6.2 Binary Replacement (Unix)
+
+The upgrade process handles replacing a running binary:
+
+```rust
+fn replace_binary(current: &PathBuf, new: &PathBuf) -> Result<()> {
+    // Read new binary contents
+    let new_contents = fs::read(new)?;
+
+    // Create backup
+    let backup_path = current.with_extension("bak");
+    fs::rename(current, &backup_path)?;
+
+    // Write new binary
+    fs::write(current, &new_contents)?;
+
+    // Set executable permissions (0o755)
+    let mut perms = fs::metadata(current)?.permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(current, perms)?;
+
+    // Remove backup
+    fs::remove_file(&backup_path).ok();
+
+    Ok(())
+}
+```
+
+---
+
+## 7. Error Handling
+
+| Condition | Behavior |
+|-----------|----------|
+| Network failure | Return error with details |
+| GitHub API error | Return HTTP status and message |
+| Missing release | Return "Binary not found in archive" |
+| Unsupported platform | Return "Unsupported platform: {os}-{arch}" |
+| Permission denied | Return write error |
+| Windows | Return "Self-upgrade on Windows not supported" |
+
+---
+
+## 8. Release Artifacts
+
+Each GitHub release includes these artifacts:
+
+| Platform | Artifact Name |
+|----------|---------------|
+| macOS Intel | `fresher-x86_64-apple-darwin.tar.gz` |
+| macOS Apple Silicon | `fresher-aarch64-apple-darwin.tar.gz` |
+| Linux x64 | `fresher-x86_64-unknown-linux-gnu.tar.gz` |
+| Linux ARM64 | `fresher-aarch64-unknown-linux-gnu.tar.gz` |
+
+**Archive contents:**
+```
+fresher-{platform}.tar.gz
+└── fresher          # The compiled binary
+```
+
+---
+
+## 9. Dependencies
+
+```toml
+[dependencies]
+reqwest = { version = "0.11", features = ["json"] }
+semver = "1"
+flate2 = "1"
+tar = "0.4"
+tempfile = "3"
+serde_json = "1"
+```
+
+---
+
+## 10. Security Considerations
+
+### Binary Verification
+
+Currently, binaries are downloaded via HTTPS from GitHub releases. Future enhancements could include:
+- SHA256 checksum verification
+- GPG signature verification
 
 ### Permissions
 
-- Install script should not require sudo
-- All files installed with user permissions
-- Executables set to 755 (run.sh, hooks, bin/*)
+- Upgrade requires write access to the binary location
+- No sudo/root required if binary is in user-writable location
+- Binary permissions set to 755 (rwxr-xr-x)
+
+### Network
+
+- All connections use HTTPS
+- User-Agent header identifies the client
+- No credentials stored
 
 ---
 
-## 7. Implementation Phases
+## 11. Future Enhancements
 
-| Phase | Description | Dependencies | Complexity |
-|-------|-------------|--------------|------------|
-| 1 | Create install.sh with basic install from GitHub | GitHub repo setup | Medium |
-| 2 | Add VERSION file tracking and version command | Phase 1 | Low |
-| 3 | Implement upgrade command with config preservation | Phase 2 | High |
-| 4 | Add --check, --dry-run, and --source flags | Phase 3 | Low |
-
----
-
-## 8. Open Questions
-
-- [x] Where should install.sh live? → Repository root, fetched via raw.githubusercontent.com
-- [x] How to handle config value preservation? → Extract with grep/sed, regenerate template, inject values
-- [ ] Should we support GitHub Enterprise URLs?
-- [ ] Add GPG signature verification for releases?
+- **Windows support**: Handle Windows binary replacement
+- **Checksum verification**: Verify downloaded binary integrity
+- **Version pinning**: Allow specifying exact version to install
+- **Homebrew formula**: `brew install fresher`
+- **Release notes**: Show changelog during upgrade
+- **Offline mode**: Support installing from local file

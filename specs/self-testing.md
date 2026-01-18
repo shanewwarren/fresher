@@ -1,8 +1,9 @@
 # Self-Testing Specification
 
-**Status:** Planned (Bash test fixtures exist, Rust tests not yet implemented)
-**Version:** 1.0
+**Status:** Implemented
+**Version:** 2.0
 **Last Updated:** 2026-01-18
+**Implementation:** Unit tests in `src/*.rs`, integration tests in `tests/*.rs`
 
 ---
 
@@ -10,11 +11,11 @@
 
 ### Purpose
 
-Self-testing provides verification that the Fresher loop works correctly. It includes test scenarios, fixtures, and validation scripts that exercise the loop mechanics without requiring real Claude Code execution.
+Self-testing provides verification that Fresher works correctly. The test suite includes unit tests for individual modules and integration tests that exercise full command flows in isolated temporary directories.
 
 ### Goals
 
-- **Confidence** - Know the loop works before relying on it
+- **Confidence** - Know Fresher works before relying on it
 - **Regression prevention** - Catch breakages from changes
 - **Documentation** - Tests serve as executable examples
 - **Fast feedback** - Tests run quickly without AI costs
@@ -22,7 +23,7 @@ Self-testing provides verification that the Fresher loop works correctly. It inc
 ### Non-Goals
 
 - **AI quality testing** - Don't test Claude's output quality
-- **Integration testing** - Focus on Fresher mechanics, not external services
+- **End-to-end testing** - Focus on Fresher mechanics, not external services
 - **Performance benchmarking** - Functional correctness over speed
 
 ---
@@ -32,596 +33,284 @@ Self-testing provides verification that the Fresher loop works correctly. It inc
 ### Test Structure
 
 ```
-.fresher/
-├── tests/
-│   ├── run-tests.sh        # Test runner
-│   ├── fixtures/           # Test fixtures
-│   │   ├── mock-project/   # Sample project structure
-│   │   ├── sample-specs/   # Sample spec files
-│   │   └── sample-plan.md  # Sample IMPLEMENTATION_PLAN.md
-│   ├── unit/               # Unit tests for individual functions
-│   │   ├── test-termination.sh
-│   │   ├── test-hooks.sh
-│   │   └── test-config.sh
-│   ├── integration/        # Integration tests for full flows
-│   │   ├── test-planning-mode.sh
-│   │   ├── test-building-mode.sh
-│   │   └── test-docker-mode.sh
-│   └── mocks/              # Mock implementations
-│       └── mock-claude.sh  # Mock Claude Code CLI
-└── lib/
-    └── test-utils.sh       # Test utilities
-```
-
-### Test Execution Flow
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  fresher test                                                    │
-├─────────────────────────────────────────────────────────────────┤
-│  1. Set up test environment                                     │
-│     - Create temp directory                                     │
-│     - Copy fixtures                                             │
-│     - Install mock Claude CLI                                   │
-│                                                                 │
-│  2. Run unit tests                                              │
-│     - Test individual functions                                 │
-│     - Fast, isolated                                            │
-│                                                                 │
-│  3. Run integration tests                                       │
-│     - Test full loop flows                                      │
-│     - Use mock Claude CLI                                       │
-│                                                                 │
-│  4. Collect results                                             │
-│     - Count pass/fail                                           │
-│     - Generate report                                           │
-│                                                                 │
-│  5. Cleanup                                                     │
-│     - Remove temp directory                                     │
-│     - Restore environment                                       │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 3. Core Types
-
-### 3.1 Test Result Structure
-
-```bash
-# Test result format
-# STATUS|TEST_NAME|DURATION|MESSAGE
-# PASS|test-config-loading|0.05|
-# FAIL|test-termination|0.12|Expected exit code 0, got 1
-```
-
-### 3.2 Mock Claude CLI Responses
-
-```bash
-# Mock response types
-MOCK_RESPONSE_SUCCESS='{"type":"result","content":"Task completed successfully"}'
-MOCK_RESPONSE_NO_CHANGES='{"type":"result","content":"No changes needed"}'
-MOCK_RESPONSE_ERROR='{"type":"error","message":"Something went wrong"}'
-```
-
-### 3.3 Fixture Files
-
-**mock-project/ structure:**
-
-```
-mock-project/
+fresher/
 ├── src/
-│   └── index.js
-├── specs/
-│   ├── README.md
-│   └── feature.md
-├── IMPLEMENTATION_PLAN.md
-├── CLAUDE.md
-└── package.json
+│   ├── config.rs          # Contains unit tests
+│   ├── verify.rs          # Contains unit tests
+│   ├── streaming.rs       # Contains unit tests
+│   └── hooks.rs           # Contains unit tests
+└── tests/
+    ├── init.rs            # Integration tests for `fresher init`
+    ├── verify.rs          # Integration tests for `fresher verify`
+    └── hooks.rs           # Integration tests for hooks
 ```
 
-**sample-plan.md:**
+### Test Categories
 
-```markdown
-# Implementation Plan
+| Category | Location | Purpose |
+|----------|----------|---------|
+| **Unit Tests** | `src/*.rs` | Test individual functions in isolation |
+| **Integration Tests** | `tests/*.rs` | Test full command flows |
 
-## Priority 1: Core Features
-- [ ] Implement user authentication (refs: specs/auth.md)
-- [ ] Add database connection (refs: specs/db.md)
+### Test Execution
 
-## Priority 2: Enhancements
-- [x] Set up project structure
-- [ ] Add logging (refs: specs/logging.md)
+```bash
+# Run all tests
+cargo test
+
+# Run unit tests only
+cargo test --lib
+
+# Run integration tests only
+cargo test --test init
+cargo test --test verify
+cargo test --test hooks
+
+# Run with output
+cargo test -- --nocapture
+
+# Run specific test
+cargo test test_init_creates_directory_structure
 ```
 
 ---
 
-## 4. Behaviors
+## 3. Test Utilities
 
-### 4.1 Test Runner
+### Temporary Directory Setup
 
-```bash
-#!/bin/bash
-# .fresher/tests/run-tests.sh
+Tests use `tempfile::TempDir` for isolated test environments:
 
-set -e
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-# Counters
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
-
-# Test utilities
-source "$(dirname "$0")/../lib/test-utils.sh"
-
-# Setup
-setup_test_env() {
-  TEST_DIR=$(mktemp -d)
-  export TEST_DIR
-  export PATH="$(dirname "$0")/mocks:$PATH"  # Add mocks to PATH
-
-  # Copy fixtures
-  cp -r "$(dirname "$0")/fixtures/mock-project/"* "$TEST_DIR/"
-  cd "$TEST_DIR"
-
-  # Initialize fresher
-  mkdir -p .fresher
-  cp -r "$(dirname "$0")/../"* .fresher/
+```rust
+fn setup_test_project() -> (TempDir, PathBuf) {
+    let original_dir = std::env::current_dir().unwrap();
+    let dir = TempDir::new().unwrap();
+    std::env::set_current_dir(dir.path()).unwrap();
+    (dir, original_dir)
 }
 
-# Teardown
-teardown_test_env() {
-  cd /
-  rm -rf "$TEST_DIR"
+fn teardown_test_project(original_dir: PathBuf) {
+    let _ = std::env::set_current_dir(original_dir);
 }
-
-# Run a single test
-run_test() {
-  local test_file="$1"
-  local test_name=$(basename "$test_file" .sh)
-
-  ((TESTS_RUN++))
-
-  local start_time=$(date +%s.%N)
-  local output
-  local exit_code
-
-  if output=$("$test_file" 2>&1); then
-    exit_code=0
-  else
-    exit_code=$?
-  fi
-
-  local end_time=$(date +%s.%N)
-  local duration=$(echo "$end_time - $start_time" | bc)
-
-  if [[ $exit_code -eq 0 ]]; then
-    ((TESTS_PASSED++))
-    echo -e "${GREEN}PASS${NC} $test_name (${duration}s)"
-  else
-    ((TESTS_FAILED++))
-    echo -e "${RED}FAIL${NC} $test_name (${duration}s)"
-    echo "  Output: $output"
-  fi
-}
-
-# Main
-main() {
-  echo "Running Fresher Tests"
-  echo "====================="
-  echo ""
-
-  setup_test_env
-  trap teardown_test_env EXIT
-
-  # Run unit tests
-  echo "Unit Tests:"
-  for test_file in "$(dirname "$0")/unit/"*.sh; do
-    if [[ -f "$test_file" ]]; then
-      run_test "$test_file"
-    fi
-  done
-
-  echo ""
-
-  # Run integration tests
-  echo "Integration Tests:"
-  for test_file in "$(dirname "$0")/integration/"*.sh; do
-    if [[ -f "$test_file" ]]; then
-      run_test "$test_file"
-    fi
-  done
-
-  echo ""
-  echo "====================="
-  echo "Results: $TESTS_PASSED passed, $TESTS_FAILED failed (of $TESTS_RUN)"
-
-  if [[ $TESTS_FAILED -gt 0 ]]; then
-    exit 1
-  fi
-}
-
-main "$@"
 ```
 
-### 4.2 Mock Claude CLI
+### Test Serialization
 
-```bash
-#!/bin/bash
-# .fresher/tests/mocks/mock-claude.sh
-# Symlinked as 'claude' in test PATH
+Tests that change the working directory are serialized using a mutex:
 
-# Parse arguments
-MOCK_MODE="${MOCK_CLAUDE_MODE:-success}"
-MOCK_DELAY="${MOCK_CLAUDE_DELAY:-0}"
-OUTPUT_FORMAT="text"
+```rust
+static TEST_MUTEX: Mutex<()> = Mutex::new(());
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -p|--print)
-      shift
-      PROMPT="$1"
-      ;;
-    --output-format)
-      shift
-      OUTPUT_FORMAT="$1"
-      ;;
-    --dangerously-skip-permissions)
-      # Accepted but ignored
-      ;;
-    --max-turns)
-      shift
-      # Accepted but ignored
-      ;;
-    *)
-      ;;
-  esac
-  shift
-done
-
-# Simulate delay
-if [[ "$MOCK_DELAY" -gt 0 ]]; then
-  sleep "$MOCK_DELAY"
-fi
-
-# Generate response based on mode
-case "$MOCK_MODE" in
-  success)
-    if [[ "$OUTPUT_FORMAT" == "stream-json" ]]; then
-      echo '{"type":"assistant","content":"Analyzing the codebase..."}'
-      echo '{"type":"tool_use","tool":"Read","input":{"file":"src/index.js"}}'
-      echo '{"type":"result","content":"Task completed. Made 1 commit."}'
-    else
-      echo "Task completed successfully."
-    fi
-
-    # Simulate commit (if building mode)
-    if [[ -d .git ]]; then
-      touch ".fresher-mock-change-$(date +%s)"
-      git add -A
-      git commit -m "Mock commit from test" --allow-empty 2>/dev/null || true
-    fi
-    ;;
-
-  no_changes)
-    if [[ "$OUTPUT_FORMAT" == "stream-json" ]]; then
-      echo '{"type":"assistant","content":"Checking for work..."}'
-      echo '{"type":"result","content":"No changes needed. All tasks complete."}'
-    else
-      echo "No changes needed."
-    fi
-    ;;
-
-  error)
-    echo '{"type":"error","message":"Mock error occurred"}' >&2
-    exit 1
-    ;;
-
-  timeout)
-    sleep 120  # Will be killed by test timeout
-    ;;
-esac
-
-exit 0
-```
-
-### 4.3 Unit Test Examples
-
-**test-config.sh:**
-
-```bash
-#!/bin/bash
-# Test config loading
-
-source .fresher/config.sh
-
-# Test default values
-assert_equals "$FRESHER_MAX_ITERATIONS" "0" "Default max iterations should be 0"
-assert_equals "$FRESHER_SMART_TERMINATION" "true" "Smart termination should be enabled"
-
-# Test override
-export FRESHER_MAX_ITERATIONS=5
-source .fresher/config.sh
-assert_equals "$FRESHER_MAX_ITERATIONS" "5" "Override should take precedence"
-
-echo "Config tests passed"
-```
-
-**test-termination.sh:**
-
-```bash
-#!/bin/bash
-# Test termination detection
-
-source .fresher/lib/termination.sh
-
-# Test max iterations
-export FRESHER_MAX_ITERATIONS=3
-export FRESHER_ITERATION=3
-if ! should_terminate; then
-  echo "FAIL: Should terminate at max iterations"
-  exit 1
-fi
-
-# Test smart termination - all tasks complete
-cat > IMPLEMENTATION_PLAN.md << 'EOF'
-# Plan
-- [x] Task 1
-- [x] Task 2
-EOF
-
-export FRESHER_SMART_TERMINATION=true
-export FRESHER_ITERATION=1
-export FRESHER_MAX_ITERATIONS=0
-if ! should_terminate; then
-  echo "FAIL: Should terminate when all tasks complete"
-  exit 1
-fi
-
-# Test smart termination - tasks remaining
-cat > IMPLEMENTATION_PLAN.md << 'EOF'
-# Plan
-- [x] Task 1
-- [ ] Task 2
-EOF
-
-if should_terminate; then
-  echo "FAIL: Should NOT terminate with pending tasks"
-  exit 1
-fi
-
-echo "Termination tests passed"
-```
-
-**test-hooks.sh:**
-
-```bash
-#!/bin/bash
-# Test hook execution
-
-source .fresher/lib/hooks.sh
-
-# Create test hook
-mkdir -p .fresher/hooks
-cat > .fresher/hooks/test-hook << 'EOF'
-#!/bin/bash
-echo "Hook executed with FRESHER_ITERATION=$FRESHER_ITERATION"
-exit 0
-EOF
-chmod +x .fresher/hooks/test-hook
-
-# Test hook execution
-export FRESHER_ITERATION=5
-output=$(run_hook "test-hook")
-if [[ "$output" != *"FRESHER_ITERATION=5"* ]]; then
-  echo "FAIL: Hook should receive environment variables"
-  exit 1
-fi
-
-# Test hook skip (exit 1)
-cat > .fresher/hooks/test-hook << 'EOF'
-#!/bin/bash
-exit 1
-EOF
-
-run_hook "test-hook"
-if [[ $? -ne 1 ]]; then
-  echo "FAIL: Hook exit code should be preserved"
-  exit 1
-fi
-
-echo "Hook tests passed"
-```
-
-### 4.4 Integration Test Examples
-
-**test-planning-mode.sh:**
-
-```bash
-#!/bin/bash
-# Test full planning mode flow
-
-export MOCK_CLAUDE_MODE="success"
-export FRESHER_MODE="planning"
-export FRESHER_MAX_ITERATIONS=1
-
-# Remove existing plan
-rm -f IMPLEMENTATION_PLAN.md
-
-# Run planning mode (with mock Claude)
-timeout 30 .fresher/run.sh
-
-# Verify plan was created (mock should have created something)
-if [[ ! -f "IMPLEMENTATION_PLAN.md" ]]; then
-  # Create mock plan since mock doesn't actually create files
-  echo "# Plan" > IMPLEMENTATION_PLAN.md
-fi
-
-# Verify hooks ran
-if [[ -f ".fresher/logs/hooks.log" ]]; then
-  if ! grep -q "started" ".fresher/logs/hooks.log"; then
-    echo "FAIL: started hook should have run"
-    exit 1
-  fi
-fi
-
-echo "Planning mode test passed"
-```
-
-**test-building-mode.sh:**
-
-```bash
-#!/bin/bash
-# Test full building mode flow
-
-# Setup git repo for commit tracking
-git init -q
-git config user.email "test@test.com"
-git config user.name "Test"
-git add -A
-git commit -m "Initial" -q
-
-# Create a plan with tasks
-cat > IMPLEMENTATION_PLAN.md << 'EOF'
-# Plan
-- [ ] Task 1
-- [ ] Task 2
-EOF
-
-export MOCK_CLAUDE_MODE="success"
-export FRESHER_MODE="building"
-export FRESHER_MAX_ITERATIONS=2
-
-initial_commits=$(git rev-list --count HEAD)
-
-# Run building mode
-timeout 60 .fresher/run.sh || true
-
-# Check that commits were made (mock creates commits)
-final_commits=$(git rev-list --count HEAD)
-if [[ $final_commits -le $initial_commits ]]; then
-  echo "WARN: Expected commits to be made (mock may not support this)"
-fi
-
-echo "Building mode test passed"
-```
-
----
-
-## 5. CLI Interface
-
-```bash
-fresher test [options]
-
-Options:
-  --unit          Run only unit tests
-  --integration   Run only integration tests
-  --verbose       Show detailed output
-  --filter NAME   Run only tests matching NAME
-  --timeout SEC   Test timeout in seconds (default: 60)
-```
-
----
-
-## 6. Test Utilities
-
-```bash
-# .fresher/lib/test-utils.sh
-
-# Assertion helpers
-assert_equals() {
-  local actual="$1"
-  local expected="$2"
-  local message="${3:-Assertion failed}"
-
-  if [[ "$actual" != "$expected" ]]; then
-    echo "FAIL: $message"
-    echo "  Expected: $expected"
-    echo "  Actual:   $actual"
-    exit 1
-  fi
+fn acquire_lock() -> MutexGuard<'static, ()> {
+    TEST_MUTEX.lock().unwrap_or_else(|e| e.into_inner())
 }
+```
 
-assert_contains() {
-  local haystack="$1"
-  local needle="$2"
-  local message="${3:-Assertion failed}"
+### Async Test Pattern
 
-  if [[ "$haystack" != *"$needle"* ]]; then
-    echo "FAIL: $message"
-    echo "  Expected to contain: $needle"
-    echo "  Actual: $haystack"
-    exit 1
-  fi
-}
+```rust
+#[tokio::test]
+async fn test_example() {
+    let _lock = acquire_lock();
+    let (dir, original_dir) = setup_test_project();
 
-assert_file_exists() {
-  local file="$1"
-  local message="${2:-File should exist: $file}"
+    // Test logic here
+    let result = fresher::commands::init::run(false).await;
 
-  if [[ ! -f "$file" ]]; then
-    echo "FAIL: $message"
-    exit 1
-  fi
-}
+    teardown_test_project(original_dir);
 
-assert_exit_code() {
-  local expected="$1"
-  shift
-
-  "$@"
-  local actual=$?
-
-  if [[ $actual -ne $expected ]]; then
-    echo "FAIL: Expected exit code $expected, got $actual"
-    exit 1
-  fi
-}
-
-# Setup helpers
-create_mock_project() {
-  local dir="${1:-.}"
-  mkdir -p "$dir/src" "$dir/specs"
-  echo 'console.log("hello")' > "$dir/src/index.js"
-  echo '# Spec' > "$dir/specs/feature.md"
-  echo '{}' > "$dir/package.json"
-}
-
-create_mock_plan() {
-  local file="${1:-IMPLEMENTATION_PLAN.md}"
-  cat > "$file" << 'EOF'
-# Implementation Plan
-- [ ] Task 1
-- [ ] Task 2
-- [x] Task 3
-EOF
+    result.unwrap();
+    assert!(dir.path().join(".fresher").exists());
 }
 ```
 
 ---
 
-## 7. Implementation Phases
+## 4. Unit Tests
 
-| Phase | Description | Dependencies | Complexity |
-|-------|-------------|--------------|------------|
-| 1 | Test runner script | None | Low |
-| 2 | Mock Claude CLI | None | Medium |
-| 3 | Test utilities | None | Low |
-| 4 | Unit tests | Phase 1-3 | Medium |
-| 5 | Integration tests | Phase 1-3 | Medium |
-| 6 | CLI integration | Phase 1-5 | Low |
+### 4.1 Config Tests (src/config.rs)
+
+| Test | Purpose |
+|------|---------|
+| `test_default_config` | Verify default configuration values |
+| `test_env_override_*` | Verify environment variable overrides |
+| `test_project_type_name` | Verify project type name mapping |
+| `test_project_type_default_commands` | Verify default commands per project type |
+| `test_config_to_toml_string` | Verify TOML serialization |
+| `test_config_roundtrip` | Verify config can be serialized and parsed back |
+
+### 4.2 Verify Tests (src/verify.rs)
+
+| Test | Purpose |
+|------|---------|
+| `test_parse_plan_*` | Test plan parsing (pending, completed, in-progress) |
+| `test_count_tasks` | Verify task counting logic |
+| `test_has_pending_tasks_*` | Test pending task detection |
+| `test_extract_requirements_*` | Test spec requirement extraction |
+| `test_analyze_coverage_*` | Test coverage calculation |
+| `test_generate_report` | Test full report generation |
+
+### 4.3 Streaming Tests (src/streaming.rs)
+
+| Test | Purpose |
+|------|---------|
+| `test_parse_event_*` | Test parsing of stream-json events |
+| `test_stream_handler_*` | Test stream handler configuration |
+| `test_process_stream_*` | Test async stream processing |
+
+### 4.4 Hooks Tests (src/hooks.rs)
+
+| Test | Purpose |
+|------|---------|
+| `test_run_hook_*` | Test hook execution with various exit codes |
+| `test_run_hook_timeout` | Test hook timeout handling |
+| `test_run_hook_env_vars` | Test environment variable passing |
 
 ---
 
-## 8. Open Questions
+## 5. Integration Tests
 
-- [ ] Should tests run in Docker to match production environment?
-- [ ] How to test Docker isolation mode (Docker-in-Docker)?
-- [ ] Should there be performance/timing tests?
-- [ ] How to handle tests that need actual Claude responses (optional E2E)?
+### 5.1 Init Tests (tests/init.rs)
+
+| Test | Purpose |
+|------|---------|
+| `test_init_creates_directory_structure` | Verify directory creation |
+| `test_init_creates_config_file` | Verify config.toml generation |
+| `test_init_creates_agents_md` | Verify AGENTS.md generation |
+| `test_init_creates_prompt_templates` | Verify prompt template generation |
+| `test_init_creates_executable_hooks` | Verify hook permissions |
+| `test_init_creates_specs_readme` | Verify specs directory creation |
+| `test_init_preserves_existing_specs` | Verify existing specs preserved |
+| `test_init_fails_without_force` | Verify error on existing .fresher |
+| `test_init_with_force_overwrites` | Verify --force behavior |
+| `test_init_detects_*_project` | Verify project type detection |
+| `test_hooks_have_shebang` | Verify hook shebang lines |
+
+### 5.2 Verify Tests (tests/verify.rs)
+
+| Test | Purpose |
+|------|---------|
+| `test_verify_missing_plan_file` | Test handling of missing plan |
+| `test_verify_with_valid_plan` | Test with valid plan file |
+| `test_verify_json_output` | Test JSON output format |
+| `test_verify_task_counts` | Test task status counting |
+| `test_verify_spec_refs` | Test spec reference extraction |
+| `test_verify_coverage_report` | Test coverage calculation |
+| `test_verify_orphan_tasks` | Test orphan task detection |
+| `test_verify_priorities` | Test priority extraction |
+| `test_verify_has_pending_tasks` | Test pending task detection |
+| `test_verify_empty_specs` | Test with empty specs directory |
+| `test_verify_rfc2119_extraction` | Test RFC 2119 keyword extraction |
+| `test_verify_task_dependencies` | Test dependency parsing |
+
+### 5.3 Hooks Tests (tests/hooks.rs)
+
+Tests for lifecycle hook execution (started, next_iteration, finished).
+
+---
+
+## 6. Running Tests
+
+### Command Reference
+
+```bash
+# Run all tests
+cargo test
+
+# Run with verbose output
+cargo test -- --nocapture
+
+# Run tests matching a pattern
+cargo test verify
+
+# Run only unit tests
+cargo test --lib
+
+# Run only integration tests
+cargo test --test init
+cargo test --test verify
+
+# Run tests in parallel (default)
+cargo test
+
+# Run tests serially (for debugging)
+cargo test -- --test-threads=1
+
+# Run ignored tests
+cargo test -- --ignored
+
+# Run tests with coverage (requires cargo-tarpaulin)
+cargo tarpaulin --out Html
+```
+
+### Test Statistics
+
+| Category | Test Count |
+|----------|------------|
+| Unit Tests | 75 |
+| Integration Tests | 45 |
+| **Total** | **120** |
+
+---
+
+## 7. Dependencies
+
+```toml
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["full", "test-util"] }
+```
+
+---
+
+## 8. Best Practices
+
+### Test Isolation
+
+- Each test creates its own temporary directory
+- Tests restore the original working directory after completion
+- Use mutex for tests that change global state (working directory)
+
+### Async Tests
+
+- Use `#[tokio::test]` for async test functions
+- Integration tests call async command functions directly
+
+### Assertions
+
+```rust
+// Basic assertions
+assert!(condition);
+assert_eq!(actual, expected);
+assert!(result.is_ok());
+assert!(result.is_err());
+
+// With messages
+assert!(path.exists(), "Expected {} to exist", path.display());
+assert_eq!(count, 3, "Expected 3 tasks, found {}", count);
+```
+
+### Test Files
+
+Tests create temporary files with realistic content:
+
+```rust
+let plan_content = r#"# Implementation Plan
+
+## Priority 1: Core
+
+- [x] Completed task (refs: specs/feature.md)
+- [ ] Pending task
+"#;
+fs::write(dir.path().join("IMPLEMENTATION_PLAN.md"), plan_content).unwrap();
+```
+
+---
+
+## 9. Future Enhancements
+
+- **Snapshot testing**: Compare command output against saved snapshots
+- **Fuzzing**: Test with randomly generated plans and specs
+- **Benchmark tests**: Track performance regressions
+- **Mock Claude CLI**: Test loop execution without real AI calls
+- **CI integration**: Run tests on pull requests

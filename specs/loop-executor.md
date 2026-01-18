@@ -1,9 +1,9 @@
 # Loop Executor Specification
 
-**Status:** Needs Update (Implemented in Rust, spec describes Bash)
-**Version:** 1.0
+**Status:** Implemented
+**Version:** 2.0
 **Last Updated:** 2026-01-18
-**Implementation:** `src/commands/plan.rs`, `src/commands/build.rs`, `src/streaming.rs`
+**Implementation:** `src/commands/plan.rs`, `src/commands/build.rs`, `src/streaming.rs`, `src/state.rs`, `src/hooks.rs`
 
 ---
 
@@ -11,7 +11,7 @@
 
 ### Purpose
 
-The loop executor is the core bash script that runs Claude Code in iterative cycles. Each iteration loads fresh context, executes Claude Code with dangerous permissions, streams output in real-time, and determines whether to continue or terminate.
+The loop executor runs Claude Code in iterative cycles, providing fresh context each iteration. Implemented in Rust using async/await with Tokio, it streams output in real-time and determines whether to continue or terminate based on configurable conditions.
 
 ### Goals
 
@@ -30,41 +30,47 @@ The loop executor is the core bash script that runs Claude Code in iterative cyc
 
 ## 2. Architecture
 
-### Component Structure
+### Module Structure
 
 ```
-.fresher/
-├── run.sh              # Main loop executor script
-├── config.sh           # Configuration variables
-├── lib/
-│   ├── termination.sh  # Termination detection logic
-│   ├── streaming.sh    # Output streaming utilities
-│   └── state.sh        # State management
-└── logs/
-    └── iteration-{n}.log
+src/
+├── commands/
+│   ├── plan.rs           # Planning mode loop executor
+│   └── build.rs          # Building mode loop executor
+├── config.rs             # Configuration (TOML + env)
+├── state.rs              # State management
+├── streaming.rs          # JSON stream parsing
+└── hooks.rs              # Lifecycle hook execution
 ```
 
 ### Execution Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         run.sh                                   │
+│                    fresher plan / fresher build                 │
 ├─────────────────────────────────────────────────────────────────┤
-│  1. Load config.sh                                              │
-│  2. Initialize state (iteration=0)                              │
-│  3. Run hooks/started                                           │
+│  1. Load config.toml + env overrides                            │
+│  2. Check Docker isolation requirements                         │
+│  3. Initialize state (iteration=0)                              │
+│  4. Run hooks/started (async)                                   │
+│  5. Set up Ctrl+C handler (tokio signal)                        │
 │                                                                 │
 │  ┌─────────────── LOOP ───────────────┐                        │
-│  │  4. Increment iteration            │                        │
-│  │  5. Run hooks/next_iteration       │                        │
-│  │  6. Invoke Claude Code             │──▶ Stream to terminal  │
-│  │  7. Capture exit code              │                        │
-│  │  8. Check termination conditions   │                        │
-│  │  9. If continue → loop             │                        │
+│  │  6. Check interrupt flag           │                        │
+│  │  7. Check max iterations           │                        │
+│  │  8. Check pending tasks (build)    │                        │
+│  │  9. Increment iteration            │                        │
+│  │ 10. Run hooks/next_iteration       │                        │
+│  │ 11. Invoke Claude Code (async)     │──▶ Stream to terminal  │
+│  │ 12. Process stream-json output     │                        │
+│  │ 13. Record iteration result        │                        │
+│  │ 14. Check termination conditions   │                        │
+│  │ 15. If continue → loop             │                        │
 │  └────────────────────────────────────┘                        │
 │                                                                 │
-│  10. Run hooks/finished (with finish_type)                     │
-│  11. Exit                                                       │
+│  16. Update final state                                         │
+│  17. Run hooks/finished (with finish_type)                      │
+│  18. Print summary                                              │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -72,43 +78,99 @@ The loop executor is the core bash script that runs Claude Code in iterative cyc
 
 ## 3. Core Types
 
-### 3.1 Configuration Variables
+### 3.1 Configuration (config.rs)
 
-Environment variables loaded from `config.sh`:
+Configuration loaded from `.fresher/config.toml` with environment variable overrides:
 
-| Variable | Type | Required | Default | Description |
-|----------|------|----------|---------|-------------|
-| `FRESHER_MODE` | string | Yes | - | "planning" or "building" |
-| `FRESHER_MAX_ITERATIONS` | number | No | 0 (unlimited) | Maximum iterations before auto-stop |
-| `FRESHER_SMART_TERMINATION` | boolean | No | true | Enable smart completion detection |
-| `FRESHER_LOG_DIR` | string | No | `.fresher/logs` | Directory for iteration logs |
-| `FRESHER_DANGEROUS_PERMISSIONS` | boolean | No | true | Use --dangerously-skip-permissions |
-| `FRESHER_MAX_TURNS` | number | No | 50 | Claude Code --max-turns per iteration |
-| `FRESHER_MODEL` | string | No | sonnet | Claude model to use |
+```rust
+pub struct Config {
+    pub fresher: FresherConfig,
+    pub commands: CommandsConfig,
+    pub paths: PathsConfig,
+    pub hooks: HooksConfig,
+    pub docker: DockerConfig,
+}
 
-### 3.2 State File
-
-State tracked in `.fresher/.state`:
-
-```bash
-ITERATION=5
-LAST_EXIT_CODE=0
-LAST_COMMIT_SHA=abc123
-STARTED_AT=2025-01-17T10:00:00Z
-TOTAL_COMMITS=3
+pub struct FresherConfig {
+    pub mode: String,              // "planning" or "building"
+    pub max_iterations: u32,       // 0 = unlimited
+    pub smart_termination: bool,   // Enable smart completion detection
+    pub dangerous_permissions: bool, // Use --dangerously-skip-permissions
+    pub max_turns: u32,            // Claude Code --max-turns per iteration
+    pub model: String,             // Claude model to use
+}
 ```
 
-### 3.3 Finish Types
+**Configuration Sources (precedence order):**
 
-Passed to `hooks/finished` as `$FRESHER_FINISH_TYPE`:
+1. Environment variables (highest)
+2. `.fresher/config.toml`
+3. Built-in defaults (lowest)
 
-| Type | Description |
-|------|-------------|
-| `manual` | User pressed Ctrl+C |
-| `max_iterations` | Reached FRESHER_MAX_ITERATIONS |
-| `complete` | Smart detection found all tasks done |
-| `no_changes` | No commits made in last iteration |
-| `error` | Claude Code exited with error |
+**Environment Variables:**
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `FRESHER_MODE` | string | "planning" | "planning" or "building" |
+| `FRESHER_MAX_ITERATIONS` | number | 0 | Maximum iterations (0=unlimited) |
+| `FRESHER_SMART_TERMINATION` | boolean | true | Enable smart detection |
+| `FRESHER_DANGEROUS_PERMISSIONS` | boolean | true | Skip permission prompts |
+| `FRESHER_MAX_TURNS` | number | 50 | Max turns per iteration |
+| `FRESHER_MODEL` | string | "sonnet" | Claude model |
+| `FRESHER_HOOKS_ENABLED` | boolean | true | Enable hook execution |
+| `FRESHER_HOOK_TIMEOUT` | number | 30 | Hook timeout in seconds |
+
+### 3.2 State (state.rs)
+
+State tracked in `.fresher/.state` (TOML format):
+
+```rust
+pub struct State {
+    pub iteration: u32,
+    pub last_exit_code: i32,
+    pub last_commit_sha: Option<String>,
+    pub started_at: DateTime<Utc>,
+    pub total_commits: u32,
+    pub duration: u64,
+    pub finish_type: Option<FinishType>,
+    pub iteration_start: Option<DateTime<Utc>>,
+    pub iteration_sha: Option<String>,
+}
+
+pub enum FinishType {
+    Manual,         // User pressed Ctrl+C
+    Error,          // Claude Code exited with error
+    MaxIterations,  // Reached max_iterations limit
+    Complete,       // All tasks in plan completed
+    NoChanges,      // No commits made in iteration
+}
+```
+
+### 3.3 Stream Events (streaming.rs)
+
+Claude Code stream-json events parsed in real-time:
+
+```rust
+pub enum StreamEvent {
+    System(SystemEvent),              // Session init info
+    Assistant(AssistantEvent),        // Text and tool calls
+    User(UserEvent),                  // Tool results
+    ContentBlockStart(ContentBlockStartEvent),
+    ContentBlockDelta(ContentBlockDeltaEvent),
+    ContentBlockStop(ContentBlockStopEvent),
+    Result(ResultEvent),              // Final summary
+    Unknown,
+}
+
+pub struct ProcessResult {
+    pub exit_code: i32,
+    pub duration_ms: Option<u64>,
+    pub cost_usd: Option<f64>,
+    pub num_turns: Option<u32>,
+    pub is_error: bool,
+    pub result_text: Option<String>,
+}
+```
 
 ---
 
@@ -116,145 +178,206 @@ Passed to `hooks/finished` as `$FRESHER_FINISH_TYPE`:
 
 ### 4.1 Claude Code Invocation
 
-**Per-iteration command:**
+**Per-iteration command built in Rust:**
 
-```bash
-claude -p "$(cat .fresher/PROMPT.${FRESHER_MODE}.md)" \
-  --append-system-prompt-file .fresher/AGENTS.md \
-  --dangerously-skip-permissions \
-  --output-format stream-json \
-  --max-turns "$FRESHER_MAX_TURNS" \
-  --no-session-persistence \
-  --model "$FRESHER_MODEL"
+```rust
+let mut cmd = Command::new("claude");
+cmd.arg("-p").arg(prompt);
+
+if agents_path.exists() {
+    cmd.arg("--append-system-prompt-file").arg(agents_path);
+}
+
+if config.fresher.dangerous_permissions {
+    cmd.arg("--dangerously-skip-permissions");
+}
+
+cmd.arg("--output-format").arg("stream-json");
+cmd.arg("--max-turns").arg(config.fresher.max_turns.to_string());
+cmd.arg("--no-session-persistence"); // Critical: fresh context
+cmd.arg("--model").arg(&config.fresher.model);
+cmd.arg("--verbose");
 ```
 
-**Output streaming:**
+**Output streaming with StreamHandler:**
 
-Stream JSON events are parsed in real-time:
-- Display assistant messages to terminal
-- Capture tool calls for logging
-- Extract final result for termination analysis
+- Displays assistant text to terminal in real-time
+- Shows formatted tool calls (Read, Write, Edit, Bash, etc.)
+- Logs to `.fresher/logs/` directory
+- Captures final result for termination analysis
 
 ### 4.2 Termination Detection
 
 **Priority order:**
 
-1. **Manual (SIGINT)** - Trap Ctrl+C, run cleanup, exit
-2. **Max iterations** - Check `$ITERATION -ge $FRESHER_MAX_ITERATIONS`
+1. **Manual (SIGINT)** - Tokio signal handler sets atomic flag
+2. **Max iterations** - Check `iteration >= max_iterations` (when non-zero)
 3. **Smart detection** (if enabled):
-   - **Primary**: Parse `IMPLEMENTATION_PLAN.md` for uncompleted tasks
-   - **Fallback**: Check if no commits were made this iteration
+   - **Task completion**: Parse `IMPLEMENTATION_PLAN.md` for `- [ ]` patterns
+   - **No changes**: Check if no commits made this iteration
 
-**Plan-based detection logic:**
+**Task completion detection:**
 
-```bash
-# Count uncompleted tasks in IMPLEMENTATION_PLAN.md
-pending_tasks=$(grep -cE '^\s*-\s*\[\s\]' IMPLEMENTATION_PLAN.md 2>/dev/null || echo "0")
-
-if [[ "$pending_tasks" -eq 0 ]]; then
-  FINISH_TYPE="complete"
-  return 0  # Should terminate
-fi
+```rust
+// In src/verify.rs
+pub fn has_pending_tasks(plan_path: &Path) -> bool {
+    let content = fs::read_to_string(plan_path).unwrap_or_default();
+    let re = Regex::new(r"^\s*-\s*\[\s\]").unwrap();
+    content.lines().any(|line| re.is_match(line))
+}
 ```
 
-**No-change detection logic:**
+**No-change detection:**
 
-```bash
-# Check if HEAD moved since iteration started
-current_sha=$(git rev-parse HEAD 2>/dev/null)
-if [[ "$current_sha" == "$LAST_COMMIT_SHA" ]]; then
-  FINISH_TYPE="no_changes"
-  return 0  # Should terminate
-fi
+```rust
+let current_sha = get_current_sha();
+if current_sha == state.iteration_sha && commits_this_iteration == 0 {
+    state.set_finish(FinishType::NoChanges);
+    break;
+}
 ```
 
 ### 4.3 Signal Handling
 
-```bash
-cleanup() {
-  local exit_code=$?
+Async signal handling with Tokio:
 
-  # Run finished hook
-  FRESHER_FINISH_TYPE="${FRESHER_FINISH_TYPE:-manual}"
-  run_hook "finished"
+```rust
+let should_stop = Arc::new(AtomicBool::new(false));
+let should_stop_clone = should_stop.clone();
 
-  # Write final state
-  write_state
+tokio::spawn(async move {
+    signal::ctrl_c().await.ok();
+    should_stop_clone.store(true, Ordering::SeqCst);
+    println!("Received interrupt, finishing current iteration...");
+});
 
-  exit $exit_code
+// In main loop:
+if should_stop.load(Ordering::SeqCst) {
+    state.set_finish(FinishType::Manual);
+    break;
 }
-
-trap cleanup EXIT
-trap 'FRESHER_FINISH_TYPE="manual"; exit 130' INT TERM
 ```
 
-### 4.4 Output Streaming
+### 4.4 Hook Execution
 
-Real-time display using process substitution:
+Hooks run as external processes with timeout:
 
-```bash
-claude ... --output-format stream-json | while IFS= read -r line; do
-  # Parse JSON event
-  event_type=$(echo "$line" | jq -r '.type // empty')
+```rust
+pub async fn run_hook(
+    hook_name: &str,
+    state: &State,
+    config: &Config,
+    project_dir: &Path,
+) -> Result<HookResult> {
+    let hook_path = project_dir.join(".fresher/hooks").join(hook_name);
 
-  case "$event_type" in
-    "assistant")
-      # Display assistant text
-      echo "$line" | jq -r '.content // empty'
-      ;;
-    "tool_use")
-      # Log tool call
-      echo "$line" >> "$LOG_FILE"
-      ;;
-    "result")
-      # Capture final result for analysis
-      LAST_RESULT="$line"
-      ;;
-  esac
+    // Build environment from state
+    let env_vars = state.to_env_vars();
 
-  # Also write to log file
-  echo "$line" >> "$LOG_FILE"
-done
+    // Run with configured timeout
+    let timeout_duration = Duration::from_secs(config.hooks.timeout as u64);
+    let result = timeout(timeout_duration, cmd.status()).await;
+
+    // Map exit codes to HookResult
+    match code {
+        0 => HookResult::Continue,
+        1 => HookResult::Skip,
+        2 => HookResult::Abort,
+        _ => HookResult::Error(...)
+    }
+}
 ```
+
+**Hook environment variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `FRESHER_ITERATION` | Current iteration number |
+| `FRESHER_LAST_EXIT_CODE` | Previous Claude exit code |
+| `FRESHER_TOTAL_COMMITS` | Total commits so far |
+| `FRESHER_DURATION` | Run duration in seconds |
+| `FRESHER_FINISH_TYPE` | Finish type (in finished hook) |
+| `FRESHER_MODE` | Current mode |
+| `FRESHER_PROJECT_DIR` | Project root directory |
 
 ---
 
 ## 5. Configuration
 
-### 5.1 config.sh Template
+### 5.1 config.toml Template
 
-```bash
-#!/bin/bash
-# Fresher configuration
+```toml
+[fresher]
+mode = "planning"
+max_iterations = 0
+smart_termination = true
+dangerous_permissions = true
+max_turns = 50
+model = "sonnet"
 
-# Mode: "planning" or "building"
-export FRESHER_MODE="${FRESHER_MODE:-planning}"
+[commands]
+test = "cargo test"
+build = "cargo build"
+lint = "cargo clippy"
 
-# Termination settings
-export FRESHER_MAX_ITERATIONS="${FRESHER_MAX_ITERATIONS:-0}"  # 0 = unlimited
-export FRESHER_SMART_TERMINATION="${FRESHER_SMART_TERMINATION:-true}"
+[paths]
+log_dir = ".fresher/logs"
+spec_dir = "specs"
+src_dir = "src"
 
-# Claude Code settings
-export FRESHER_DANGEROUS_PERMISSIONS="${FRESHER_DANGEROUS_PERMISSIONS:-true}"
-export FRESHER_MAX_TURNS="${FRESHER_MAX_TURNS:-50}"
-export FRESHER_MODEL="${FRESHER_MODEL:-sonnet}"
+[hooks]
+enabled = true
+timeout = 30
 
-# Logging
-export FRESHER_LOG_DIR="${FRESHER_LOG_DIR:-.fresher/logs}"
-
-# Docker (see docker-isolation spec)
-export FRESHER_USE_DOCKER="${FRESHER_USE_DOCKER:-false}"
+[docker]
+use_docker = false
+memory = "4g"
+cpus = "2"
 ```
 
 ---
 
-## 6. Security Considerations
+## 6. Commands
+
+### fresher plan
+
+Runs planning mode - creates or updates IMPLEMENTATION_PLAN.md:
+
+```bash
+fresher plan [--max-iterations <n>]
+```
+
+**Behavior:**
+
+1. Requires `.fresher/` directory (run `fresher init` first)
+2. Loads `PROMPT.planning.md` or embedded template
+3. Runs iterations until manual stop or smart termination
+4. Creates/updates IMPLEMENTATION_PLAN.md
+
+### fresher build
+
+Runs building mode - implements tasks from the plan:
+
+```bash
+fresher build [--max-iterations <n>]
+```
+
+**Behavior:**
+
+1. Requires `.fresher/` directory
+2. Requires `IMPLEMENTATION_PLAN.md` (run `fresher plan` first)
+3. Checks for pending tasks before each iteration
+4. Terminates when all tasks are complete (`- [x]`)
+
+---
+
+## 7. Security Considerations
 
 ### Dangerous Permissions
 
 - The `--dangerously-skip-permissions` flag allows Claude to execute any action without confirmation
 - Only use in trusted environments or with Docker isolation
-- Log all tool calls for audit trail
+- All tool calls logged via stream output
 
 ### State File Protection
 
@@ -264,20 +387,44 @@ export FRESHER_USE_DOCKER="${FRESHER_USE_DOCKER:-false}"
 
 ---
 
-## 7. Implementation Phases
+## 8. Error Handling
 
-| Phase | Description | Dependencies | Complexity |
-|-------|-------------|--------------|------------|
-| 1 | Basic loop with manual termination | None | Low |
-| 2 | Output streaming and logging | Phase 1 | Medium |
-| 3 | Max iterations termination | Phase 1 | Low |
-| 4 | Smart termination detection | Phase 2 | Medium |
-| 5 | Signal handling and cleanup | Phase 1 | Medium |
+| Condition | Behavior |
+|-----------|----------|
+| `.fresher/` not found | Exit with error, suggest `fresher init` |
+| `claude` command not found | Exit with error, link to installation |
+| IMPLEMENTATION_PLAN.md not found (build) | Exit with error, suggest `fresher plan` |
+| Claude exits non-zero | Set `FinishType::Error`, stop loop |
+| Hook timeout | Log warning, continue execution |
+| Hook error | Log warning, continue execution |
+| SIGINT received | Set `FinishType::Manual`, finish current work |
 
 ---
 
-## 8. Open Questions
+## 9. Implementation Notes
 
-- [ ] Should the loop support resuming from a specific iteration?
-- [ ] How to handle Claude Code crashes vs intentional exits?
-- [ ] Should iteration logs be auto-rotated or manually cleaned?
+### Differences from v1.0 (Bash)
+
+| Aspect | v1.0 (Bash) | v2.0 (Rust) |
+|--------|-------------|-------------|
+| Configuration | `config.sh` (sourced) | `config.toml` (parsed) |
+| State format | Shell variables | TOML file |
+| Streaming | jq + while read | serde_json + tokio |
+| Signal handling | trap | tokio::signal |
+| Async | Sequential | Async/await |
+| Error handling | Exit codes | Result<T, Error> |
+
+### Dependencies
+
+```toml
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+anyhow = "1"
+colored = "2"
+chrono = { version = "0.4", features = ["serde"] }
+which = "6"
+regex = "1"
+```

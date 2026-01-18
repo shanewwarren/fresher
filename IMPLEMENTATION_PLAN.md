@@ -18,13 +18,13 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
 | Integration Tests | ✅ Complete | 45 |
 | **Total Tests** | | **120** |
 
-### Next Priority: Spec Updates (Priority 12) ← **START HERE**
+### Spec Updates (Priority 12) ✅ **COMPLETE**
 
-- [ ] Rewrite loop-executor.md for Rust architecture
-- [ ] Rewrite project-scaffold.md for Rust architecture
-- [ ] Rewrite plan-verification.md for Rust architecture
-- [ ] Rewrite installer.md for Rust architecture
-- [ ] Update self-testing.md for Rust testing
+- [x] Rewrite loop-executor.md for Rust architecture
+- [x] Rewrite project-scaffold.md for Rust architecture
+- [x] Rewrite plan-verification.md for Rust architecture
+- [x] Rewrite installer.md for Rust architecture
+- [x] Update self-testing.md for Rust testing
 
 ---
 
@@ -487,29 +487,29 @@ The following features have been fully implemented in Rust:
 
 ---
 
-### Priority 12: Spec Updates ← **NEXT**
+### Priority 12: Spec Updates ✅
 
-- [ ] Rewrite loop-executor.md for Rust architecture
+- [x] Rewrite loop-executor.md for Rust architecture
   - Dependencies: none
   - Complexity: medium
   - Changes: Remove bash references, document Rust implementation
 
-- [ ] Rewrite project-scaffold.md for Rust architecture
+- [x] Rewrite project-scaffold.md for Rust architecture
   - Dependencies: none
   - Complexity: medium
   - Changes: Document `fresher init` command, TOML config
 
-- [ ] Rewrite plan-verification.md for Rust architecture
+- [x] Rewrite plan-verification.md for Rust architecture
   - Dependencies: none
   - Complexity: low
   - Changes: Document `fresher verify` command
 
-- [ ] Rewrite installer.md for Rust architecture
+- [x] Rewrite installer.md for Rust architecture
   - Dependencies: none
   - Complexity: low
   - Changes: Document `fresher upgrade` and GitHub releases
 
-- [ ] Update self-testing.md for Rust testing
+- [x] Update self-testing.md for Rust testing
   - Dependencies: Rust tests implemented ✅
   - Complexity: low
   - Changes: Replace bash test examples with Rust test examples
