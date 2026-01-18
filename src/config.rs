@@ -296,3 +296,217 @@ impl ProjectType {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+
+    #[test]
+    fn test_default_config() {
+        let config = Config::default();
+
+        assert_eq!(config.fresher.mode, "planning");
+        assert_eq!(config.fresher.max_iterations, 0);
+        assert!(config.fresher.smart_termination);
+        assert!(config.fresher.dangerous_permissions);
+        assert_eq!(config.fresher.max_turns, 50);
+        assert_eq!(config.fresher.model, "sonnet");
+
+        assert!(config.commands.test.is_empty());
+        assert!(config.commands.build.is_empty());
+        assert!(config.commands.lint.is_empty());
+
+        assert_eq!(config.paths.log_dir, ".fresher/logs");
+        assert_eq!(config.paths.spec_dir, "specs");
+        assert_eq!(config.paths.src_dir, "src");
+
+        assert!(config.hooks.enabled);
+        assert_eq!(config.hooks.timeout, 30);
+
+        assert!(!config.docker.use_docker);
+        assert_eq!(config.docker.memory, "4g");
+        assert_eq!(config.docker.cpus, "2");
+    }
+
+    #[test]
+    fn test_env_override_mode() {
+        let mut config = Config::default();
+
+        // Set environment variable
+        env::set_var("FRESHER_MODE", "building");
+        config.apply_env_overrides();
+
+        assert_eq!(config.fresher.mode, "building");
+
+        // Clean up
+        env::remove_var("FRESHER_MODE");
+    }
+
+    #[test]
+    fn test_env_override_max_iterations() {
+        let mut config = Config::default();
+
+        env::set_var("FRESHER_MAX_ITERATIONS", "10");
+        config.apply_env_overrides();
+
+        assert_eq!(config.fresher.max_iterations, 10);
+
+        env::remove_var("FRESHER_MAX_ITERATIONS");
+    }
+
+    #[test]
+    fn test_env_override_smart_termination() {
+        let mut config = Config::default();
+
+        env::set_var("FRESHER_SMART_TERMINATION", "false");
+        config.apply_env_overrides();
+
+        assert!(!config.fresher.smart_termination);
+
+        env::remove_var("FRESHER_SMART_TERMINATION");
+    }
+
+    #[test]
+    fn test_env_override_hooks() {
+        let mut config = Config::default();
+
+        env::set_var("FRESHER_HOOKS_ENABLED", "false");
+        env::set_var("FRESHER_HOOK_TIMEOUT", "60");
+        config.apply_env_overrides();
+
+        assert!(!config.hooks.enabled);
+        assert_eq!(config.hooks.timeout, 60);
+
+        env::remove_var("FRESHER_HOOKS_ENABLED");
+        env::remove_var("FRESHER_HOOK_TIMEOUT");
+    }
+
+    #[test]
+    fn test_env_override_docker() {
+        let mut config = Config::default();
+
+        env::set_var("FRESHER_USE_DOCKER", "true");
+        env::set_var("FRESHER_DOCKER_MEMORY", "8g");
+        env::set_var("FRESHER_DOCKER_CPUS", "4");
+        config.apply_env_overrides();
+
+        assert!(config.docker.use_docker);
+        assert_eq!(config.docker.memory, "8g");
+        assert_eq!(config.docker.cpus, "4");
+
+        env::remove_var("FRESHER_USE_DOCKER");
+        env::remove_var("FRESHER_DOCKER_MEMORY");
+        env::remove_var("FRESHER_DOCKER_CPUS");
+    }
+
+    #[test]
+    fn test_env_override_commands() {
+        let mut config = Config::default();
+
+        env::set_var("FRESHER_TEST_CMD", "bun test");
+        env::set_var("FRESHER_BUILD_CMD", "bun run build");
+        env::set_var("FRESHER_LINT_CMD", "bun run lint");
+        config.apply_env_overrides();
+
+        assert_eq!(config.commands.test, "bun test");
+        assert_eq!(config.commands.build, "bun run build");
+        assert_eq!(config.commands.lint, "bun run lint");
+
+        env::remove_var("FRESHER_TEST_CMD");
+        env::remove_var("FRESHER_BUILD_CMD");
+        env::remove_var("FRESHER_LINT_CMD");
+    }
+
+    #[test]
+    fn test_env_override_paths() {
+        let mut config = Config::default();
+
+        env::set_var("FRESHER_LOG_DIR", "/tmp/logs");
+        env::set_var("FRESHER_SPEC_DIR", "specifications");
+        env::set_var("FRESHER_SRC_DIR", "source");
+        config.apply_env_overrides();
+
+        assert_eq!(config.paths.log_dir, "/tmp/logs");
+        assert_eq!(config.paths.spec_dir, "specifications");
+        assert_eq!(config.paths.src_dir, "source");
+
+        env::remove_var("FRESHER_LOG_DIR");
+        env::remove_var("FRESHER_SPEC_DIR");
+        env::remove_var("FRESHER_SRC_DIR");
+    }
+
+    #[test]
+    fn test_env_override_invalid_number() {
+        let mut config = Config::default();
+
+        // Invalid number should not change the value
+        env::set_var("FRESHER_MAX_ITERATIONS", "not_a_number");
+        config.apply_env_overrides();
+
+        assert_eq!(config.fresher.max_iterations, 0);
+
+        env::remove_var("FRESHER_MAX_ITERATIONS");
+    }
+
+    #[test]
+    fn test_project_type_name() {
+        assert_eq!(ProjectType::Bun.name(), "bun");
+        assert_eq!(ProjectType::NodeJs.name(), "nodejs");
+        assert_eq!(ProjectType::Rust.name(), "rust");
+        assert_eq!(ProjectType::Go.name(), "go");
+        assert_eq!(ProjectType::Python.name(), "python");
+        assert_eq!(ProjectType::Make.name(), "make");
+        assert_eq!(ProjectType::DotNet.name(), "dotnet");
+        assert_eq!(ProjectType::Maven.name(), "maven");
+        assert_eq!(ProjectType::Gradle.name(), "gradle");
+        assert_eq!(ProjectType::Generic.name(), "generic");
+    }
+
+    #[test]
+    fn test_project_type_default_commands() {
+        let rust_cmds = ProjectType::Rust.default_commands();
+        assert_eq!(rust_cmds.test, "cargo test");
+        assert_eq!(rust_cmds.build, "cargo build");
+        assert_eq!(rust_cmds.lint, "cargo clippy");
+
+        let bun_cmds = ProjectType::Bun.default_commands();
+        assert_eq!(bun_cmds.test, "bun test");
+        assert_eq!(bun_cmds.build, "bun run build");
+        assert_eq!(bun_cmds.lint, "bun run lint");
+
+        let go_cmds = ProjectType::Go.default_commands();
+        assert_eq!(go_cmds.test, "go test ./...");
+        assert_eq!(go_cmds.build, "go build");
+        assert_eq!(go_cmds.lint, "go fmt");
+
+        let generic_cmds = ProjectType::Generic.default_commands();
+        assert!(generic_cmds.test.is_empty());
+        assert!(generic_cmds.build.is_empty());
+        assert!(generic_cmds.lint.is_empty());
+    }
+
+    #[test]
+    fn test_config_to_toml_string() {
+        let config = Config::default();
+        let toml_str = config.to_toml_string().unwrap();
+
+        assert!(toml_str.contains("[fresher]"));
+        assert!(toml_str.contains("mode = \"planning\""));
+        assert!(toml_str.contains("[commands]"));
+        assert!(toml_str.contains("[paths]"));
+        assert!(toml_str.contains("[hooks]"));
+        assert!(toml_str.contains("[docker]"));
+    }
+
+    #[test]
+    fn test_config_roundtrip() {
+        let config = Config::default();
+        let toml_str = config.to_toml_string().unwrap();
+        let parsed: Config = toml::from_str(&toml_str).unwrap();
+
+        assert_eq!(parsed.fresher.mode, config.fresher.mode);
+        assert_eq!(parsed.fresher.max_iterations, config.fresher.max_iterations);
+        assert_eq!(parsed.hooks.timeout, config.hooks.timeout);
+    }
+}

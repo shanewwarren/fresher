@@ -56,4 +56,19 @@ pub enum Commands {
 
     /// Show version information
     Version,
+
+    /// Docker container management
+    Docker {
+        #[command(subcommand)]
+        command: DockerCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum DockerCommands {
+    /// Open an interactive shell in the devcontainer
+    Shell,
+
+    /// Build the devcontainer image
+    Build,
 }

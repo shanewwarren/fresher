@@ -318,3 +318,354 @@ pub fn generate_report(plan_path: &Path, spec_dir: &Path) -> Result<VerifyReport
         tasks,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::TempDir;
+
+    fn create_temp_plan(content: &str) -> (TempDir, std::path::PathBuf) {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("IMPLEMENTATION_PLAN.md");
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+        (dir, path)
+    }
+
+    fn create_temp_spec(dir: &TempDir, name: &str, content: &str) {
+        let specs_dir = dir.path().join("specs");
+        std::fs::create_dir_all(&specs_dir).unwrap();
+        let path = specs_dir.join(name);
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+    }
+
+    #[test]
+    fn test_parse_plan_empty() {
+        let (_dir, path) = create_temp_plan("");
+        let tasks = parse_plan(&path).unwrap();
+        assert!(tasks.is_empty());
+    }
+
+    #[test]
+    fn test_parse_plan_pending_task() {
+        let content = "- [ ] Implement feature X";
+        let (_dir, path) = create_temp_plan(content);
+        let tasks = parse_plan(&path).unwrap();
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].status, TaskStatus::Pending);
+        assert_eq!(tasks[0].description, "Implement feature X");
+    }
+
+    #[test]
+    fn test_parse_plan_completed_task() {
+        let content = "- [x] Completed task";
+        let (_dir, path) = create_temp_plan(content);
+        let tasks = parse_plan(&path).unwrap();
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].status, TaskStatus::Completed);
+    }
+
+    #[test]
+    fn test_parse_plan_completed_task_uppercase() {
+        let content = "- [X] Completed task uppercase";
+        let (_dir, path) = create_temp_plan(content);
+        let tasks = parse_plan(&path).unwrap();
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].status, TaskStatus::Completed);
+    }
+
+    #[test]
+    fn test_parse_plan_in_progress_task() {
+        let content = "- [~] In progress task";
+        let (_dir, path) = create_temp_plan(content);
+        let tasks = parse_plan(&path).unwrap();
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].status, TaskStatus::InProgress);
+    }
+
+    #[test]
+    fn test_parse_plan_with_spec_refs() {
+        let content = "- [ ] Task with refs (refs: specs/foo.md)";
+        let (_dir, path) = create_temp_plan(content);
+        let tasks = parse_plan(&path).unwrap();
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].spec_refs, vec!["specs/foo.md"]);
+        assert_eq!(tasks[0].description, "Task with refs");
+    }
+
+    #[test]
+    fn test_parse_plan_with_multiple_refs() {
+        let content = "- [ ] Multi refs (refs: specs/a.md, specs/b.md)";
+        let (_dir, path) = create_temp_plan(content);
+        let tasks = parse_plan(&path).unwrap();
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].spec_refs.len(), 2);
+        assert!(tasks[0].spec_refs.contains(&"specs/a.md".to_string()));
+        assert!(tasks[0].spec_refs.contains(&"specs/b.md".to_string()));
+    }
+
+    #[test]
+    fn test_parse_plan_with_priority() {
+        let content = r#"## Priority 3: Something
+
+- [ ] Task in priority 3
+"#;
+        let (_dir, path) = create_temp_plan(content);
+        let tasks = parse_plan(&path).unwrap();
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].priority, Some(3));
+    }
+
+    #[test]
+    fn test_parse_plan_with_dependencies() {
+        let content = r#"- [ ] Task with deps
+  - Dependencies: Module A, Module B
+"#;
+        let (_dir, path) = create_temp_plan(content);
+        let tasks = parse_plan(&path).unwrap();
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].dependencies.len(), 2);
+        assert!(tasks[0].dependencies.contains(&"Module A".to_string()));
+        assert!(tasks[0].dependencies.contains(&"Module B".to_string()));
+    }
+
+    #[test]
+    fn test_parse_plan_with_complexity() {
+        let content = r#"- [ ] Complex task
+  - Complexity: medium
+"#;
+        let (_dir, path) = create_temp_plan(content);
+        let tasks = parse_plan(&path).unwrap();
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].complexity, Some("medium".to_string()));
+    }
+
+    #[test]
+    fn test_parse_plan_dependencies_none() {
+        let content = r#"- [ ] Independent task
+  - Dependencies: none
+"#;
+        let (_dir, path) = create_temp_plan(content);
+        let tasks = parse_plan(&path).unwrap();
+
+        assert_eq!(tasks.len(), 1);
+        assert!(tasks[0].dependencies.is_empty());
+    }
+
+    #[test]
+    fn test_count_tasks() {
+        let tasks = vec![
+            Task {
+                description: "Task 1".to_string(),
+                status: TaskStatus::Pending,
+                spec_refs: vec![],
+                line_number: 1,
+                priority: None,
+                dependencies: vec![],
+                complexity: None,
+            },
+            Task {
+                description: "Task 2".to_string(),
+                status: TaskStatus::Completed,
+                spec_refs: vec![],
+                line_number: 2,
+                priority: None,
+                dependencies: vec![],
+                complexity: None,
+            },
+            Task {
+                description: "Task 3".to_string(),
+                status: TaskStatus::InProgress,
+                spec_refs: vec![],
+                line_number: 3,
+                priority: None,
+                dependencies: vec![],
+                complexity: None,
+            },
+        ];
+
+        let (total, pending, completed, in_progress) = count_tasks(&tasks);
+
+        assert_eq!(total, 3);
+        assert_eq!(pending, 1);
+        assert_eq!(completed, 1);
+        assert_eq!(in_progress, 1);
+    }
+
+    #[test]
+    fn test_has_pending_tasks_true() {
+        let content = "- [ ] Pending task";
+        let (_dir, path) = create_temp_plan(content);
+
+        assert!(has_pending_tasks(&path));
+    }
+
+    #[test]
+    fn test_has_pending_tasks_false() {
+        let content = "- [x] Completed task";
+        let (_dir, path) = create_temp_plan(content);
+
+        assert!(!has_pending_tasks(&path));
+    }
+
+    #[test]
+    fn test_has_pending_tasks_missing_file() {
+        let path = Path::new("/nonexistent/path/plan.md");
+        assert!(!has_pending_tasks(path));
+    }
+
+    #[test]
+    fn test_extract_requirements_empty_dir() {
+        let dir = TempDir::new().unwrap();
+        let specs_dir = dir.path().join("specs");
+        std::fs::create_dir_all(&specs_dir).unwrap();
+
+        let reqs = extract_requirements(&specs_dir).unwrap();
+        assert!(reqs.is_empty());
+    }
+
+    #[test]
+    fn test_extract_requirements_section_header() {
+        let dir = TempDir::new().unwrap();
+        create_temp_spec(&dir, "feature.md", "### Feature Details\n\nSome content.");
+
+        let specs_dir = dir.path().join("specs");
+        let reqs = extract_requirements(&specs_dir).unwrap();
+
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs[0].req_type, RequirementType::Section);
+        assert_eq!(reqs[0].text, "Feature Details");
+        assert_eq!(reqs[0].spec_name, "feature");
+    }
+
+    #[test]
+    fn test_extract_requirements_rfc2119() {
+        let dir = TempDir::new().unwrap();
+        create_temp_spec(&dir, "spec.md", "The system MUST validate input.\nIt SHOULD log errors.");
+
+        let specs_dir = dir.path().join("specs");
+        let reqs = extract_requirements(&specs_dir).unwrap();
+
+        let rfc_reqs: Vec<_> = reqs.iter().filter(|r| r.req_type == RequirementType::Rfc2119).collect();
+        assert_eq!(rfc_reqs.len(), 2);
+    }
+
+    #[test]
+    fn test_extract_requirements_checkbox() {
+        let dir = TempDir::new().unwrap();
+        create_temp_spec(&dir, "spec.md", "- [ ] Pending spec task\n- [x] Done spec task");
+
+        let specs_dir = dir.path().join("specs");
+        let reqs = extract_requirements(&specs_dir).unwrap();
+
+        let task_reqs: Vec<_> = reqs.iter().filter(|r| r.req_type == RequirementType::Task).collect();
+        assert_eq!(task_reqs.len(), 2);
+    }
+
+    #[test]
+    fn test_analyze_coverage_empty() {
+        let dir = TempDir::new().unwrap();
+        let specs_dir = dir.path().join("specs");
+        std::fs::create_dir_all(&specs_dir).unwrap();
+
+        let tasks: Vec<Task> = vec![];
+        let coverage = analyze_coverage(&specs_dir, &tasks).unwrap();
+
+        assert!(coverage.is_empty());
+    }
+
+    #[test]
+    fn test_analyze_coverage_with_refs() {
+        let dir = TempDir::new().unwrap();
+        create_temp_spec(&dir, "feature.md", "### Section 1\n### Section 2\n");
+
+        let tasks = vec![
+            Task {
+                description: "Task 1".to_string(),
+                status: TaskStatus::Pending,
+                spec_refs: vec!["specs/feature.md".to_string()],
+                line_number: 1,
+                priority: None,
+                dependencies: vec![],
+                complexity: None,
+            },
+            Task {
+                description: "Task 2".to_string(),
+                status: TaskStatus::Pending,
+                spec_refs: vec!["specs/feature.md".to_string()],
+                line_number: 2,
+                priority: None,
+                dependencies: vec![],
+                complexity: None,
+            },
+        ];
+
+        let specs_dir = dir.path().join("specs");
+        let coverage = analyze_coverage(&specs_dir, &tasks).unwrap();
+
+        assert_eq!(coverage.len(), 1);
+        assert_eq!(coverage[0].spec_name, "feature");
+        assert_eq!(coverage[0].task_count, 2);
+        assert_eq!(coverage[0].requirement_count, 2); // 2 sections
+    }
+
+    #[test]
+    fn test_generate_report() {
+        let dir = TempDir::new().unwrap();
+
+        // Create plan
+        let plan_content = r#"## Priority 1: Test
+
+- [x] Completed task (refs: specs/feature.md)
+- [ ] Pending task
+"#;
+        let plan_path = dir.path().join("plan.md");
+        std::fs::write(&plan_path, plan_content).unwrap();
+
+        // Create spec
+        create_temp_spec(&dir, "feature.md", "### Feature Section\n");
+
+        let specs_dir = dir.path().join("specs");
+        let report = generate_report(&plan_path, &specs_dir).unwrap();
+
+        assert_eq!(report.total_tasks, 2);
+        assert_eq!(report.completed_tasks, 1);
+        assert_eq!(report.pending_tasks, 1);
+        assert_eq!(report.tasks_with_refs, 1);
+        assert_eq!(report.orphan_tasks, 1);
+    }
+
+    #[test]
+    fn test_task_status_display() {
+        assert_eq!(TaskStatus::Pending.to_string(), "pending");
+        assert_eq!(TaskStatus::Completed.to_string(), "completed");
+        assert_eq!(TaskStatus::InProgress.to_string(), "in_progress");
+    }
+
+    #[test]
+    fn test_parse_plan_line_numbers() {
+        let content = r#"Line 1
+Line 2
+- [ ] Task on line 3
+Line 4
+- [x] Task on line 5
+"#;
+        let (_dir, path) = create_temp_plan(content);
+        let tasks = parse_plan(&path).unwrap();
+
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].line_number, 3);
+        assert_eq!(tasks[1].line_number, 5);
+    }
+}

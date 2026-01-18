@@ -366,3 +366,308 @@ pub async fn process_stream<R: tokio::io::AsyncRead + Unpin>(
 
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_event_system() {
+        let json = r#"{"type":"system","subtype":"init","session_id":"abc123"}"#;
+        let event = parse_event(json).unwrap();
+
+        match event {
+            StreamEvent::System(e) => {
+                assert_eq!(e.subtype, Some("init".to_string()));
+                assert_eq!(e.session_id, Some("abc123".to_string()));
+            }
+            _ => panic!("Expected System event"),
+        }
+    }
+
+    #[test]
+    fn test_parse_event_assistant_text() {
+        let json = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Hello world"}]}}"#;
+        let event = parse_event(json).unwrap();
+
+        match event {
+            StreamEvent::Assistant(e) => {
+                let msg = e.message.unwrap();
+                assert_eq!(msg.content.len(), 1);
+                match &msg.content[0] {
+                    ContentBlock::Text { text } => assert_eq!(text, "Hello world"),
+                    _ => panic!("Expected Text block"),
+                }
+            }
+            _ => panic!("Expected Assistant event"),
+        }
+    }
+
+    #[test]
+    fn test_parse_event_assistant_tool_use() {
+        let json = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tool1","name":"Bash","input":{"command":"ls -la"}}]}}"#;
+        let event = parse_event(json).unwrap();
+
+        match event {
+            StreamEvent::Assistant(e) => {
+                let msg = e.message.unwrap();
+                assert_eq!(msg.content.len(), 1);
+                match &msg.content[0] {
+                    ContentBlock::ToolUse { id, name, input } => {
+                        assert_eq!(id, "tool1");
+                        assert_eq!(name, "Bash");
+                        assert_eq!(input["command"].as_str().unwrap(), "ls -la");
+                    }
+                    _ => panic!("Expected ToolUse block"),
+                }
+            }
+            _ => panic!("Expected Assistant event"),
+        }
+    }
+
+    #[test]
+    fn test_parse_event_user_tool_result() {
+        let json = r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool1","content":"output text"}]}}"#;
+        let event = parse_event(json).unwrap();
+
+        match event {
+            StreamEvent::User(e) => {
+                let msg = e.message.unwrap();
+                assert_eq!(msg.content.len(), 1);
+                match &msg.content[0] {
+                    UserContentBlock::ToolResult { tool_use_id, content } => {
+                        assert_eq!(tool_use_id, "tool1");
+                        assert_eq!(content, "output text");
+                    }
+                    _ => panic!("Expected ToolResult block"),
+                }
+            }
+            _ => panic!("Expected User event"),
+        }
+    }
+
+    #[test]
+    fn test_parse_event_content_block_start() {
+        let json = r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool1","name":"Read","input":{}}}"#;
+        let event = parse_event(json).unwrap();
+
+        match event {
+            StreamEvent::ContentBlockStart(e) => {
+                assert_eq!(e.index, Some(0));
+                match e.content_block.unwrap() {
+                    ContentBlock::ToolUse { name, .. } => assert_eq!(name, "Read"),
+                    _ => panic!("Expected ToolUse block"),
+                }
+            }
+            _ => panic!("Expected ContentBlockStart event"),
+        }
+    }
+
+    #[test]
+    fn test_parse_event_content_block_delta_text() {
+        let json = r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial output"}}"#;
+        let event = parse_event(json).unwrap();
+
+        match event {
+            StreamEvent::ContentBlockDelta(e) => {
+                assert_eq!(e.index, Some(0));
+                match e.delta.unwrap() {
+                    Delta::TextDelta { text } => assert_eq!(text, "partial output"),
+                    _ => panic!("Expected TextDelta"),
+                }
+            }
+            _ => panic!("Expected ContentBlockDelta event"),
+        }
+    }
+
+    #[test]
+    fn test_parse_event_content_block_delta_json() {
+        let json = r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"key\":"}}"#;
+        let event = parse_event(json).unwrap();
+
+        match event {
+            StreamEvent::ContentBlockDelta(e) => {
+                match e.delta.unwrap() {
+                    Delta::InputJsonDelta { partial_json } => assert_eq!(partial_json, r#"{"key":"#),
+                    _ => panic!("Expected InputJsonDelta"),
+                }
+            }
+            _ => panic!("Expected ContentBlockDelta event"),
+        }
+    }
+
+    #[test]
+    fn test_parse_event_content_block_stop() {
+        let json = r#"{"type":"content_block_stop","index":0}"#;
+        let event = parse_event(json).unwrap();
+
+        match event {
+            StreamEvent::ContentBlockStop(e) => {
+                assert_eq!(e.index, Some(0));
+            }
+            _ => panic!("Expected ContentBlockStop event"),
+        }
+    }
+
+    #[test]
+    fn test_parse_event_result() {
+        let json = r#"{"type":"result","subtype":"success","is_error":false,"duration_ms":5000,"duration_api_ms":4500,"num_turns":10,"result":"Task completed","cost_usd":0.05,"session_id":"xyz789"}"#;
+        let event = parse_event(json).unwrap();
+
+        match event {
+            StreamEvent::Result(e) => {
+                assert_eq!(e.subtype, Some("success".to_string()));
+                assert_eq!(e.is_error, Some(false));
+                assert_eq!(e.duration_ms, Some(5000));
+                assert_eq!(e.duration_api_ms, Some(4500));
+                assert_eq!(e.num_turns, Some(10));
+                assert_eq!(e.result, Some("Task completed".to_string()));
+                assert_eq!(e.cost_usd, Some(0.05));
+                assert_eq!(e.session_id, Some("xyz789".to_string()));
+            }
+            _ => panic!("Expected Result event"),
+        }
+    }
+
+    #[test]
+    fn test_parse_event_unknown() {
+        let json = r#"{"type":"some_new_type","data":"value"}"#;
+        let event = parse_event(json).unwrap();
+
+        match event {
+            StreamEvent::Unknown => {}
+            _ => panic!("Expected Unknown event"),
+        }
+    }
+
+    #[test]
+    fn test_parse_event_invalid_json() {
+        let result = parse_event("not valid json");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_stream_handler_default() {
+        let handler = StreamHandler::default();
+        assert!(handler.show_tool_calls);
+        assert!(!handler.show_tool_results);
+        assert!(handler.show_text);
+        assert!(!handler.verbose);
+    }
+
+    #[test]
+    fn test_stream_handler_new() {
+        let handler = StreamHandler::new();
+        assert!(handler.show_tool_calls);
+        assert!(!handler.verbose);
+    }
+
+    #[test]
+    fn test_stream_handler_verbose() {
+        let handler = StreamHandler::new().verbose(true);
+        assert!(handler.verbose);
+    }
+
+    #[test]
+    fn test_process_result_default() {
+        let result = ProcessResult::default();
+        assert_eq!(result.exit_code, 0);
+        assert!(result.duration_ms.is_none());
+        assert!(result.cost_usd.is_none());
+        assert!(result.num_turns.is_none());
+        assert!(!result.is_error);
+        assert!(result.result_text.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_process_stream_empty() {
+        let data = b"";
+        let handler = StreamHandler::new();
+        let result = process_stream(&data[..], &handler).await.unwrap();
+
+        assert_eq!(result.exit_code, 0);
+        assert!(result.duration_ms.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_process_stream_with_result() {
+        let data = b"{\"type\":\"result\",\"duration_ms\":1000,\"cost_usd\":0.01,\"num_turns\":5,\"is_error\":false}\n";
+        let handler = StreamHandler::new();
+        let result = process_stream(&data[..], &handler).await.unwrap();
+
+        assert_eq!(result.duration_ms, Some(1000));
+        assert_eq!(result.cost_usd, Some(0.01));
+        assert_eq!(result.num_turns, Some(5));
+        assert!(!result.is_error);
+    }
+
+    #[tokio::test]
+    async fn test_process_stream_skips_empty_lines() {
+        let data = b"\n\n{\"type\":\"result\",\"duration_ms\":500}\n\n";
+        let handler = StreamHandler::new();
+        let result = process_stream(&data[..], &handler).await.unwrap();
+
+        assert_eq!(result.duration_ms, Some(500));
+    }
+
+    #[tokio::test]
+    async fn test_process_stream_handles_invalid_json() {
+        let data = b"invalid json\n{\"type\":\"result\",\"duration_ms\":100}\n";
+        let handler = StreamHandler::new().verbose(false);
+        let result = process_stream(&data[..], &handler).await.unwrap();
+
+        // Should still capture the valid result event
+        assert_eq!(result.duration_ms, Some(100));
+    }
+
+    #[tokio::test]
+    async fn test_process_stream_error_result() {
+        let data = b"{\"type\":\"result\",\"is_error\":true}\n";
+        let handler = StreamHandler::new();
+        let result = process_stream(&data[..], &handler).await.unwrap();
+
+        assert!(result.is_error);
+    }
+
+    #[test]
+    fn test_parse_event_assistant_multiple_blocks() {
+        let json = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"First"},{"type":"text","text":"Second"}]}}"#;
+        let event = parse_event(json).unwrap();
+
+        match event {
+            StreamEvent::Assistant(e) => {
+                let msg = e.message.unwrap();
+                assert_eq!(msg.content.len(), 2);
+            }
+            _ => panic!("Expected Assistant event"),
+        }
+    }
+
+    #[test]
+    fn test_content_block_other() {
+        let json = r#"{"type":"assistant","message":{"content":[{"type":"some_unknown_type"}]}}"#;
+        let event = parse_event(json).unwrap();
+
+        match event {
+            StreamEvent::Assistant(e) => {
+                let msg = e.message.unwrap();
+                assert_eq!(msg.content.len(), 1);
+                assert!(matches!(msg.content[0], ContentBlock::Other));
+            }
+            _ => panic!("Expected Assistant event"),
+        }
+    }
+
+    #[test]
+    fn test_delta_other() {
+        let json = r#"{"type":"content_block_delta","index":0,"delta":{"type":"some_unknown_delta"}}"#;
+        let event = parse_event(json).unwrap();
+
+        match event {
+            StreamEvent::ContentBlockDelta(e) => {
+                assert!(matches!(e.delta.unwrap(), Delta::Other));
+            }
+            _ => panic!("Expected ContentBlockDelta event"),
+        }
+    }
+}

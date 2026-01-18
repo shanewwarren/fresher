@@ -149,3 +149,267 @@ pub async fn run_finished_hook(state: &State, config: &Config, project_dir: &Pat
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::io::Write;
+    use tempfile::TempDir;
+
+    fn create_test_config(hooks_enabled: bool, timeout: u32) -> Config {
+        Config {
+            fresher: crate::config::FresherConfig {
+                mode: "building".to_string(),
+                max_iterations: 0,
+                smart_termination: true,
+                dangerous_permissions: true,
+                max_turns: 50,
+                model: "sonnet".to_string(),
+            },
+            commands: crate::config::CommandsConfig {
+                test: String::new(),
+                build: String::new(),
+                lint: String::new(),
+            },
+            paths: crate::config::PathsConfig {
+                log_dir: ".fresher/logs".to_string(),
+                spec_dir: "specs".to_string(),
+                src_dir: "src".to_string(),
+            },
+            hooks: crate::config::HooksConfig {
+                enabled: hooks_enabled,
+                timeout,
+            },
+            docker: crate::config::DockerConfig {
+                use_docker: false,
+                memory: "4g".to_string(),
+                cpus: "2".to_string(),
+            },
+        }
+    }
+
+    fn create_test_state() -> State {
+        State::new()
+    }
+
+    fn create_hook_script(dir: &TempDir, name: &str, script: &str) -> std::path::PathBuf {
+        let hooks_dir = dir.path().join(".fresher/hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+        let hook_path = hooks_dir.join(name);
+        let mut file = fs::File::create(&hook_path).unwrap();
+        file.write_all(script.as_bytes()).unwrap();
+
+        // Make executable on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&hook_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&hook_path, perms).unwrap();
+        }
+
+        hook_path
+    }
+
+    #[test]
+    fn test_hook_constants() {
+        assert_eq!(HOOK_CONTINUE, 0);
+        assert_eq!(HOOK_SKIP, 1);
+        assert_eq!(HOOK_ABORT, 2);
+    }
+
+    #[tokio::test]
+    async fn test_run_hook_disabled() {
+        let dir = TempDir::new().unwrap();
+        let config = create_test_config(false, 30);
+        let state = create_test_state();
+
+        let result = run_hook("started", &state, &config, dir.path()).await.unwrap();
+        assert!(matches!(result, HookResult::NotFound));
+    }
+
+    #[tokio::test]
+    async fn test_run_hook_not_found() {
+        let dir = TempDir::new().unwrap();
+        let config = create_test_config(true, 30);
+        let state = create_test_state();
+
+        // Create hooks directory but no hook file
+        fs::create_dir_all(dir.path().join(".fresher/hooks")).unwrap();
+
+        let result = run_hook("nonexistent", &state, &config, dir.path()).await.unwrap();
+        assert!(matches!(result, HookResult::NotFound));
+    }
+
+    #[tokio::test]
+    async fn test_run_hook_continue() {
+        let dir = TempDir::new().unwrap();
+        let config = create_test_config(true, 30);
+        let state = create_test_state();
+
+        create_hook_script(&dir, "test_hook", "#!/bin/bash\nexit 0\n");
+
+        let result = run_hook("test_hook", &state, &config, dir.path()).await.unwrap();
+        assert!(matches!(result, HookResult::Continue));
+    }
+
+    #[tokio::test]
+    async fn test_run_hook_skip() {
+        let dir = TempDir::new().unwrap();
+        let config = create_test_config(true, 30);
+        let state = create_test_state();
+
+        create_hook_script(&dir, "test_hook", "#!/bin/bash\nexit 1\n");
+
+        let result = run_hook("test_hook", &state, &config, dir.path()).await.unwrap();
+        assert!(matches!(result, HookResult::Skip));
+    }
+
+    #[tokio::test]
+    async fn test_run_hook_abort() {
+        let dir = TempDir::new().unwrap();
+        let config = create_test_config(true, 30);
+        let state = create_test_state();
+
+        create_hook_script(&dir, "test_hook", "#!/bin/bash\nexit 2\n");
+
+        let result = run_hook("test_hook", &state, &config, dir.path()).await.unwrap();
+        assert!(matches!(result, HookResult::Abort));
+    }
+
+    #[tokio::test]
+    async fn test_run_hook_error_exit_code() {
+        let dir = TempDir::new().unwrap();
+        let config = create_test_config(true, 30);
+        let state = create_test_state();
+
+        create_hook_script(&dir, "test_hook", "#!/bin/bash\nexit 99\n");
+
+        let result = run_hook("test_hook", &state, &config, dir.path()).await.unwrap();
+        assert!(matches!(result, HookResult::Error(_)));
+    }
+
+    #[tokio::test]
+    async fn test_run_hook_timeout() {
+        let dir = TempDir::new().unwrap();
+        // Very short timeout to trigger timeout
+        let config = create_test_config(true, 1);
+        let state = create_test_state();
+
+        create_hook_script(&dir, "test_hook", "#!/bin/bash\nsleep 10\nexit 0\n");
+
+        let result = run_hook("test_hook", &state, &config, dir.path()).await.unwrap();
+        assert!(matches!(result, HookResult::Timeout));
+    }
+
+    #[tokio::test]
+    async fn test_run_hook_env_vars() {
+        let dir = TempDir::new().unwrap();
+        let config = create_test_config(true, 30);
+        let mut state = create_test_state();
+        state.iteration = 5;
+        state.last_exit_code = 0;
+
+        // Hook that checks environment variables
+        let script = r#"#!/bin/bash
+if [ "$FRESHER_ITERATION" = "5" ] && [ "$FRESHER_MODE" = "building" ]; then
+    exit 0
+else
+    exit 99
+fi
+"#;
+        create_hook_script(&dir, "test_hook", script);
+
+        let result = run_hook("test_hook", &state, &config, dir.path()).await.unwrap();
+        assert!(matches!(result, HookResult::Continue));
+    }
+
+    #[tokio::test]
+    async fn test_run_started_hook_continue() {
+        let dir = TempDir::new().unwrap();
+        let config = create_test_config(true, 30);
+        let state = create_test_state();
+
+        create_hook_script(&dir, "started", "#!/bin/bash\nexit 0\n");
+
+        let should_continue = run_started_hook(&state, &config, dir.path()).await.unwrap();
+        assert!(should_continue);
+    }
+
+    #[tokio::test]
+    async fn test_run_started_hook_abort() {
+        let dir = TempDir::new().unwrap();
+        let config = create_test_config(true, 30);
+        let state = create_test_state();
+
+        create_hook_script(&dir, "started", "#!/bin/bash\nexit 2\n");
+
+        let should_continue = run_started_hook(&state, &config, dir.path()).await.unwrap();
+        assert!(!should_continue);
+    }
+
+    #[tokio::test]
+    async fn test_run_next_iteration_hook_skip() {
+        let dir = TempDir::new().unwrap();
+        let config = create_test_config(true, 30);
+        let state = create_test_state();
+
+        create_hook_script(&dir, "next_iteration", "#!/bin/bash\nexit 1\n");
+
+        let (should_continue, should_skip) = run_next_iteration_hook(&state, &config, dir.path()).await.unwrap();
+        assert!(should_continue);
+        assert!(should_skip);
+    }
+
+    #[tokio::test]
+    async fn test_run_next_iteration_hook_abort() {
+        let dir = TempDir::new().unwrap();
+        let config = create_test_config(true, 30);
+        let state = create_test_state();
+
+        create_hook_script(&dir, "next_iteration", "#!/bin/bash\nexit 2\n");
+
+        let (should_continue, should_skip) = run_next_iteration_hook(&state, &config, dir.path()).await.unwrap();
+        assert!(!should_continue);
+        assert!(!should_skip);
+    }
+
+    #[tokio::test]
+    async fn test_run_finished_hook() {
+        let dir = TempDir::new().unwrap();
+        let config = create_test_config(true, 30);
+        let state = create_test_state();
+
+        create_hook_script(&dir, "finished", "#!/bin/bash\nexit 0\n");
+
+        // Finished hook always returns Ok(()) regardless of exit code
+        let result = run_finished_hook(&state, &config, dir.path()).await;
+        assert!(result.is_ok());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_run_hook_not_executable() {
+        let dir = TempDir::new().unwrap();
+        let config = create_test_config(true, 30);
+        let state = create_test_state();
+
+        // Create hooks directory
+        let hooks_dir = dir.path().join(".fresher/hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Create a non-executable file
+        let hook_path = hooks_dir.join("test_hook");
+        fs::write(&hook_path, "#!/bin/bash\nexit 0\n").unwrap();
+
+        // Don't make it executable
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&hook_path).unwrap().permissions();
+        perms.set_mode(0o644);
+        fs::set_permissions(&hook_path, perms).unwrap();
+
+        let result = run_hook("test_hook", &state, &config, dir.path()).await.unwrap();
+        assert!(matches!(result, HookResult::NotFound));
+    }
+}
