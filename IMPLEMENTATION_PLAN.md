@@ -455,7 +455,7 @@ The following features have been fully implemented in Rust:
 
 ---
 
-## Remaining Work
+## Completed Work
 
 ### Priority 10: Rust Testing ✅
 
@@ -487,7 +487,7 @@ The following features have been fully implemented in Rust:
 
 ---
 
-### Priority 12: Spec Updates
+### Priority 12: Spec Updates ← **NEXT**
 
 - [ ] Rewrite loop-executor.md for Rust architecture
   - Dependencies: none
