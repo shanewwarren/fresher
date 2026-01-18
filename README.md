@@ -46,6 +46,9 @@ Check for updates and upgrade to the latest version:
 ```bash
 fresher upgrade --check  # Check for updates
 fresher upgrade          # Install latest version
+
+# If installed in /usr/local/bin or similar, use sudo:
+sudo fresher upgrade
 ```
 
 ## Quick Start
