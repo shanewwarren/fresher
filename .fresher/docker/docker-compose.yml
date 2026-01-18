@@ -6,13 +6,10 @@
 
 services:
   fresher:
-    image: ghcr.io/anthropics/claude-code-devcontainer:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: fresher-${FRESHER_MODE:-loop}
-
-    # Required for firewall setup
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
 
     # Interactive mode
     stdin_open: true
@@ -25,8 +22,7 @@ services:
     # Volume mounts
     volumes:
       - ${PWD}:/workspace
-      - fresher-bashhistory:/commandhistory
-      - fresher-config:/home/node/.claude
+      - fresher-claude-config:/home/node/.claude
 
     # Environment
     environment:
@@ -34,17 +30,13 @@ services:
       - FRESHER_MAX_ITERATIONS=${FRESHER_MAX_ITERATIONS:-0}
       - FRESHER_IN_DOCKER=true
       - DEVCONTAINER=true
-
-    # User mapping
-    user: node
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
 
     # Working directory
     working_dir: /workspace
 
-    # Initialize firewall on start, then run Fresher
-    command: >
-      bash -c "sudo /usr/local/bin/init-firewall.sh && /workspace/.fresher/run.sh"
+    # Run Fresher
+    command: /workspace/.fresher/run.sh
 
 volumes:
-  fresher-bashhistory:
-  fresher-config:
+  fresher-claude-config:
