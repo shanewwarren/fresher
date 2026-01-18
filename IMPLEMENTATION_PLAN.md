@@ -2,18 +2,19 @@
 
 Generated: 2025-01-17
 Last Updated: 2026-01-18
-Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-executor.md, specs/prompt-templates.md, specs/docker-isolation.md, specs/plan-verification.md, specs/self-testing.md
+Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-executor.md, specs/prompt-templates.md, specs/docker-isolation.md, specs/docker-ux.md, specs/plan-verification.md, specs/self-testing.md
 
 ---
 
 ## Current Status
 
-**Fresher v2.0** - Rust rewrite is feature-complete with full test coverage.
+**Fresher v2.1** - Rust rewrite is feature-complete. Docker UX improvements in progress.
 
 | Category | Status | Tests |
 |----------|--------|-------|
 | Core Implementation | ✅ Complete | - |
 | Docker Isolation | ✅ Complete | - |
+| Docker UX | 🔄 In Progress | - |
 | Unit Tests | ✅ Complete | 75 |
 | Integration Tests | ✅ Complete | 45 |
 | **Total Tests** | | **120** |
@@ -513,3 +514,79 @@ The following features have been fully implemented in Rust:
   - Dependencies: Rust tests implemented ✅
   - Complexity: low
   - Changes: Replace bash test examples with Rust test examples
+
+---
+
+## Priority 13: Docker UX Improvements
+
+Seamless Docker experience where `fresher plan/build` auto-launches containers with streaming output and declarative dependency presets.
+
+- [ ] Add `run_in_container()` orchestration to docker.rs (refs: specs/docker-ux.md §4.1)
+  - Dependencies: Existing docker.rs module
+  - Complexity: medium
+  - File: `src/docker.rs`
+  - Implementation:
+    - Check if already in container → return sentinel to proceed normally
+    - Check if `use_docker=true` → orchestrate Docker launch
+    - Call `ensure_image_built()` before running
+    - Execute `docker compose run --rm -t fresher <command>`
+    - Inherit stdin/stdout/stderr for streaming
+    - Forward exit code to caller
+
+- [ ] Update plan.rs and build.rs to call orchestration (refs: specs/docker-ux.md §4.1)
+  - Dependencies: `run_in_container()` implemented
+  - Complexity: low
+  - Files: `src/commands/plan.rs`, `src/commands/build.rs`
+  - Implementation:
+    - Call `docker::run_in_container()` at start of command
+    - If returns exit code, propagate and exit
+    - If returns sentinel (-1), continue with normal execution
+
+- [ ] Add preset configuration to DockerConfig (refs: specs/docker-ux.md §3.1)
+  - Dependencies: none
+  - Complexity: low
+  - File: `src/config.rs`
+  - Implementation:
+    - Add `presets: Vec<String>` field to DockerConfig
+    - Add `setup_script: Option<String>` field
+    - Support presets: "rust", "node", "bun", "python", "go"
+
+- [ ] Implement Dockerfile generation with presets (refs: specs/docker-ux.md §4.3)
+  - Dependencies: Preset configuration
+  - Complexity: medium
+  - File: `src/docker.rs`
+  - Implementation:
+    - Create `generate_dockerfile()` function
+    - Base: `FROM ghcr.io/anthropics/claude-code-devcontainer:latest`
+    - Add RUN commands for each preset's install commands
+    - Support custom setup_script if specified
+    - Write to `.fresher/docker/Dockerfile.generated`
+
+- [ ] Add image caching with preset hash (refs: specs/docker-ux.md §4.4)
+  - Dependencies: Dockerfile generation
+  - Complexity: low
+  - File: `src/docker.rs`
+  - Implementation:
+    - Create `hash_presets()` function
+    - Tag images as `fresher-dev:{hash}`
+    - Check if image exists before building
+    - Only rebuild when presets change
+
+- [ ] Update templates for new docker-compose.yml (refs: specs/docker-ux.md §5)
+  - Dependencies: All above tasks
+  - Complexity: low
+  - File: `src/templates.rs`
+  - Implementation:
+    - Update DOCKER_COMPOSE_TEMPLATE to use generated image tag
+    - Ensure TTY allocation with `stdin_open: true` and `tty: true`
+    - Mount host credentials for OAuth
+
+- [ ] Add documentation and error messages (refs: specs/docker-ux.md §6)
+  - Dependencies: All above tasks
+  - Complexity: low
+  - Files: `README.md`, `src/docker.rs`
+  - Implementation:
+    - Document preset configuration in README
+    - Add helpful error when Docker not installed
+    - Show build progress during image creation
+    - Display "[Docker] Using cached image" on subsequent runs
