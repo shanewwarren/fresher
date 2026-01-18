@@ -4,7 +4,7 @@ A portable Ralph Loop implementation for AI-driven iterative development using C
 
 ## Project Overview
 
-Fresher provides the bash infrastructure to run the Ralph Loop methodology - an iterative execution model with two modes (PLANNING and BUILDING) that uses fresh context each iteration for specification-driven development.
+Fresher is a Rust CLI tool that implements the Ralph Loop methodology - an iterative execution model with two modes (PLANNING and BUILDING) that uses fresh context each iteration for specification-driven development.
 
 ## Specifications
 
@@ -17,34 +17,66 @@ Fresher provides the bash infrastructure to run the Ralph Loop methodology - an 
 
 ## Commands
 
-### Testing
+### Development
 ```bash
-# Run self-tests (once implemented)
-.fresher/tests/run-tests.sh
+# Run tests
+cargo test
+
+# Build release binary
+cargo build --release
+
+# Run from source
+cargo run -- <command>
 ```
 
-### Running Fresher
+### Using Fresher
 ```bash
-# Planning mode
-FRESHER_MODE=planning .fresher/run.sh
+# Initialize in a project
+fresher init
 
-# Building mode
-FRESHER_MODE=building .fresher/run.sh
+# Run planning mode
+fresher plan
+
+# Run building mode
+fresher build
+
+# Verify implementation coverage
+fresher verify
+
+# Check for updates
+fresher upgrade --check
 ```
 
 ## Architecture
 
 ```
-.fresher/
-├── run.sh                 # Main loop executor
-├── config.sh              # Configuration
-├── PROMPT.planning.md     # Planning mode instructions
-├── PROMPT.building.md     # Building mode instructions
-├── AGENTS.md              # Project-specific knowledge
-├── hooks/                 # Lifecycle hooks
-├── lib/                   # Supporting scripts
-├── docker/                # Docker isolation files
-└── tests/                 # Self-testing
+src/
+├── main.rs              # Entry point
+├── lib.rs               # Library exports
+├── cli.rs               # Command-line parsing
+├── config.rs            # Configuration (TOML)
+├── state.rs             # State management
+├── hooks.rs             # Lifecycle hooks
+├── streaming.rs         # Claude API streaming
+├── templates.rs         # Prompt templates
+├── verify.rs            # Plan verification
+├── upgrade.rs           # Self-upgrade
+├── docker.rs            # Docker isolation
+└── commands/            # Command implementations
+    ├── init.rs          # fresher init
+    ├── plan.rs          # fresher plan
+    ├── build.rs         # fresher build
+    ├── verify.rs        # fresher verify
+    ├── upgrade.rs       # fresher upgrade
+    ├── docker.rs        # fresher docker
+    └── version.rs       # fresher version
+
+.fresher/                # Generated project config
+├── AGENTS.md            # Project-specific knowledge
+├── PROMPT.planning.md   # Planning mode instructions
+├── PROMPT.building.md   # Building mode instructions
+├── docker/              # Docker isolation files
+└── logs/                # Execution logs
 ```
 
 ## Key Concepts
@@ -56,7 +88,8 @@ FRESHER_MODE=building .fresher/run.sh
 
 ## Development Notes
 
-- This is a bash-based CLI tool
-- Primary entry point is `.fresher/run.sh`
+- Written in Rust with async support
+- Uses `clap` for CLI argument parsing
+- Configuration stored in `.fresher/fresher.toml`
 - Docker isolation is optional but recommended for dangerous permissions
-- Hooks allow extensibility without modifying core scripts
+- Hooks execute shell scripts for extensibility
