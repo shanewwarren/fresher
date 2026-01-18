@@ -18,10 +18,13 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
 | Integration Tests | ✅ Complete | 45 |
 | **Total Tests** | | **120** |
 
-### Next Priority: Documentation (Priority 11) ← **START HERE**
+### Next Priority: Spec Updates (Priority 12) ← **START HERE**
 
-- [ ] Update README.md for v2.0
-- [ ] Add CHANGELOG.md
+- [ ] Rewrite loop-executor.md for Rust architecture
+- [ ] Rewrite project-scaffold.md for Rust architecture
+- [ ] Rewrite plan-verification.md for Rust architecture
+- [ ] Rewrite installer.md for Rust architecture
+- [ ] Update self-testing.md for Rust testing
 
 ---
 
@@ -466,9 +469,9 @@ The following features have been fully implemented in Rust:
 
 ---
 
-### Priority 11: Documentation ← **NEXT**
+### Priority 11: Documentation ✅
 
-- [ ] Update README.md for v2.0 (refs: specs/documentation.md)
+- [x] Update README.md for v2.0 (refs: specs/documentation.md)
   - Dependencies: none
   - Complexity: medium
   - Content needed:
@@ -477,7 +480,7 @@ The following features have been fully implemented in Rust:
     - Configuration (TOML format)
     - Docker isolation setup
 
-- [ ] Add CHANGELOG.md
+- [x] Add CHANGELOG.md
   - Dependencies: none
   - Complexity: low
   - Content: v2.0.0 release notes (Rust rewrite)

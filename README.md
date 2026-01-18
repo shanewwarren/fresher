@@ -13,96 +13,211 @@ The Ralph Loop is an iterative execution model with two modes:
 
 Each iteration starts with fresh context, keeping Claude in the "smart zone" for optimal performance.
 
+## Installation
+
+### From Cargo (Recommended)
+
+```bash
+cargo install fresher
+```
+
+### From Binary Release
+
+Download the latest release for your platform:
+
+```bash
+# macOS (Apple Silicon)
+curl -fsSL https://github.com/shanewwarren/fresher/releases/latest/download/fresher-aarch64-apple-darwin.tar.gz | tar xz
+sudo mv fresher /usr/local/bin/
+
+# macOS (Intel)
+curl -fsSL https://github.com/shanewwarren/fresher/releases/latest/download/fresher-x86_64-apple-darwin.tar.gz | tar xz
+sudo mv fresher /usr/local/bin/
+
+# Linux (x86_64)
+curl -fsSL https://github.com/shanewwarren/fresher/releases/latest/download/fresher-x86_64-unknown-linux-gnu.tar.gz | tar xz
+sudo mv fresher /usr/local/bin/
+```
+
+### Self-Upgrade
+
+Check for updates and upgrade to the latest version:
+
+```bash
+fresher upgrade --check  # Check for updates
+fresher upgrade          # Install latest version
+```
+
 ## Quick Start
 
-### Installation
+### 1. Initialize
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/shanewwarren/fresher/main/install.sh | bash
+cd your-project
+fresher init
 ```
 
-Or inspect before running:
+This creates a `.fresher/` directory with configuration and templates. Fresher auto-detects your project type (Node.js, Rust, Go, Python, etc.) and configures appropriate defaults.
+
+### 2. Add Specifications
+
+Write specs in `specs/` describing what you want to build:
+
+```markdown
+# Feature: User Authentication
+
+## Requirements
+
+- Users can sign up with email/password
+- Passwords must be hashed with bcrypt
+- Sessions expire after 24 hours
+```
+
+### 3. Run Planning Mode
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/shanewwarren/fresher/main/install.sh -o install.sh
-cat install.sh
-bash install.sh
+fresher plan
 ```
 
-### Your First Loop
+Claude analyzes your specs and codebase, then creates `IMPLEMENTATION_PLAN.md` with prioritized tasks.
 
-1. **Planning mode** - Create an implementation plan:
-   ```bash
-   FRESHER_MODE=planning .fresher/run.sh
-   ```
+### 4. Review the Plan
 
-2. **Review the plan** - Check `IMPLEMENTATION_PLAN.md`
+Check `IMPLEMENTATION_PLAN.md` to ensure the plan matches your intent.
 
-3. **Building mode** - Execute the plan:
-   ```bash
-   FRESHER_MODE=building .fresher/run.sh
-   ```
-
-The loop runs until all tasks are complete or max iterations reached.
-
-## Modes
-
-### Planning Mode
-
-Planning mode generates an `IMPLEMENTATION_PLAN.md` based on your specifications.
+### 5. Run Building Mode
 
 ```bash
-FRESHER_MODE=planning .fresher/run.sh
+fresher build
 ```
 
-**What happens:**
-- Claude reads specs from `specs/` directory
-- Generates prioritized task list
-- Creates implementation plan with phases
-- Terminates when plan is complete
+Claude works through the plan, implementing one task per iteration with test/build validation.
 
-**Best for:** Starting new features, refactoring, understanding scope
+The loop runs until all tasks are complete, max iterations reached, or you stop it manually (Ctrl+C).
 
-### Building Mode
+## Commands
 
-Building mode executes tasks from the implementation plan.
+| Command | Description |
+|---------|-------------|
+| `fresher init` | Initialize `.fresher/` in a project |
+| `fresher plan` | Run planning mode (analyze specs, create plan) |
+| `fresher build` | Run building mode (implement tasks from plan) |
+| `fresher verify` | Verify plan coverage against specs |
+| `fresher upgrade` | Self-upgrade to latest version |
+| `fresher version` | Show version information |
+| `fresher docker shell` | Open interactive shell in devcontainer |
+| `fresher docker build` | Build the devcontainer image |
+
+### Command Options
 
 ```bash
-FRESHER_MODE=building .fresher/run.sh
+# Limit iterations
+fresher plan --max-iterations 5
+fresher build --max-iterations 10
+
+# Force overwrite existing config
+fresher init --force
+
+# Verify with JSON output
+fresher verify --json
+
+# Check for updates without installing
+fresher upgrade --check
 ```
-
-**What happens:**
-- Claude reads the implementation plan
-- Works through tasks iteratively
-- Runs tests/builds as backpressure
-- Terminates when all tasks complete
-
-**Best for:** Implementing features, fixing bugs, making changes
 
 ## Configuration
 
-### config.sh Options
+Fresher uses TOML configuration in `.fresher/config.toml`:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `FRESHER_TEST_CMD` | Command to run tests | Auto-detected |
-| `FRESHER_BUILD_CMD` | Command to build project | Auto-detected |
-| `FRESHER_LINT_CMD` | Command to run linter | `""` |
-| `FRESHER_SRC_DIR` | Source directory | Auto-detected |
-| `FRESHER_MAX_ITERATIONS` | Max loop iterations | `50` |
-| `FRESHER_LOG_LEVEL` | Log verbosity (debug/info/warn) | `info` |
+```toml
+[fresher]
+mode = "planning"
+max_iterations = 0        # 0 = unlimited
+smart_termination = true  # Stop when all tasks complete
+dangerous_permissions = true
+max_turns = 50
+model = "sonnet"
+
+[commands]
+test = "cargo test"
+build = "cargo build"
+lint = "cargo clippy"
+
+[paths]
+log_dir = ".fresher/logs"
+spec_dir = "specs"
+src_dir = "src"
+
+[hooks]
+enabled = true
+timeout = 30
+
+[docker]
+use_docker = false
+memory = "4g"
+cpus = "2"
+```
+
+### Configuration Reference
+
+| Section | Key | Description | Default |
+|---------|-----|-------------|---------|
+| `fresher` | `mode` | Execution mode | `"planning"` |
+| | `max_iterations` | Iteration limit (0=unlimited) | `0` |
+| | `smart_termination` | Stop when tasks complete | `true` |
+| | `dangerous_permissions` | Skip Claude permission prompts | `true` |
+| | `max_turns` | Claude max turns per iteration | `50` |
+| | `model` | Claude model to use | `"sonnet"` |
+| `commands` | `test` | Test command | Auto-detected |
+| | `build` | Build command | Auto-detected |
+| | `lint` | Lint command | Auto-detected |
+| `paths` | `log_dir` | Log directory | `".fresher/logs"` |
+| | `spec_dir` | Specifications directory | `"specs"` |
+| | `src_dir` | Source directory | `"src"` |
+| `hooks` | `enabled` | Enable lifecycle hooks | `true` |
+| | `timeout` | Hook timeout (seconds) | `30` |
+| `docker` | `use_docker` | Require Docker isolation | `false` |
+| | `memory` | Container memory limit | `"4g"` |
+| | `cpus` | Container CPU limit | `"2"` |
 
 ### Environment Variables
 
-Override config.sh values at runtime:
+All config values can be overridden with environment variables:
 
 ```bash
-FRESHER_MAX_ITERATIONS=10 FRESHER_MODE=building .fresher/run.sh
+# Override max iterations
+FRESHER_MAX_ITERATIONS=10 fresher build
+
+# Use building mode
+FRESHER_MODE=building fresher plan  # (mode flag has no effect here)
+
+# Disable hooks
+FRESHER_HOOKS_ENABLED=false fresher build
 ```
 
-### Hooks
+| Variable | Config Key |
+|----------|------------|
+| `FRESHER_MODE` | `fresher.mode` |
+| `FRESHER_MAX_ITERATIONS` | `fresher.max_iterations` |
+| `FRESHER_SMART_TERMINATION` | `fresher.smart_termination` |
+| `FRESHER_DANGEROUS_PERMISSIONS` | `fresher.dangerous_permissions` |
+| `FRESHER_MAX_TURNS` | `fresher.max_turns` |
+| `FRESHER_MODEL` | `fresher.model` |
+| `FRESHER_TEST_CMD` | `commands.test` |
+| `FRESHER_BUILD_CMD` | `commands.build` |
+| `FRESHER_LINT_CMD` | `commands.lint` |
+| `FRESHER_LOG_DIR` | `paths.log_dir` |
+| `FRESHER_SPEC_DIR` | `paths.spec_dir` |
+| `FRESHER_SRC_DIR` | `paths.src_dir` |
+| `FRESHER_HOOKS_ENABLED` | `hooks.enabled` |
+| `FRESHER_HOOK_TIMEOUT` | `hooks.timeout` |
+| `FRESHER_USE_DOCKER` | `docker.use_docker` |
+| `FRESHER_DOCKER_MEMORY` | `docker.memory` |
+| `FRESHER_DOCKER_CPUS` | `docker.cpus` |
 
-Customize behavior at lifecycle events:
+## Hooks
+
+Customize behavior at lifecycle events with shell scripts in `.fresher/hooks/`:
 
 | Hook | When | Use Case |
 |------|------|----------|
@@ -110,12 +225,102 @@ Customize behavior at lifecycle events:
 | `hooks/next_iteration` | Each iteration | Log progress, update dashboard |
 | `hooks/finished` | Loop ends | Send notification, cleanup |
 
-Example hook:
+### Exit Codes
+
+- `0` - Continue normally
+- `1` - Skip this iteration (next_iteration hook only)
+- `2` - Abort the loop
+
+### Environment Variables in Hooks
+
+| Variable | Description |
+|----------|-------------|
+| `FRESHER_ITERATION` | Current iteration number |
+| `FRESHER_TOTAL_ITERATIONS` | Total iterations completed |
+| `FRESHER_TOTAL_COMMITS` | Total commits made |
+| `FRESHER_DURATION` | Total duration in seconds |
+| `FRESHER_FINISH_TYPE` | Exit reason: `manual`, `error`, `max_iterations`, `complete`, `no_changes` |
+
+### Example Hook
 
 ```bash
-#!/usr/bin/env bash
+#!/bin/bash
 # hooks/finished - notify on completion
-curl -X POST "$SLACK_WEBHOOK" -d '{"text":"Fresher loop completed!"}'
+
+echo "Fresher loop finished"
+echo "  Iterations: $FRESHER_TOTAL_ITERATIONS"
+echo "  Commits: $FRESHER_TOTAL_COMMITS"
+echo "  Duration: ${FRESHER_DURATION}s"
+echo "  Finish type: $FRESHER_FINISH_TYPE"
+
+# Send Slack notification
+# curl -X POST "$SLACK_WEBHOOK" -d "{\"text\": \"Fresher: $FRESHER_FINISH_TYPE\"}"
+
+exit 0
+```
+
+## Docker Isolation
+
+For maximum safety, run Fresher in a Docker container with network restrictions and resource limits.
+
+### Setup
+
+1. Enable Docker in config:
+
+```toml
+[docker]
+use_docker = true
+memory = "4g"
+cpus = "2"
+```
+
+2. Build the devcontainer:
+
+```bash
+fresher docker build
+```
+
+3. Run Fresher:
+
+```bash
+fresher docker shell
+# Inside container:
+fresher plan
+fresher build
+```
+
+### What Docker Provides
+
+- **Isolated filesystem** - Changes contained to mounted volume
+- **Network restrictions** - Firewall limits outbound connections
+- **Resource limits** - Memory and CPU constraints
+- **Reproducible environment** - Consistent execution context
+
+### Manual Docker Compose
+
+You can also run directly with Docker Compose:
+
+```bash
+docker compose -f .fresher/docker/docker-compose.yml up
+```
+
+## Project Structure
+
+```
+project/
+├── .fresher/
+│   ├── config.toml           # Configuration (TOML)
+│   ├── AGENTS.md             # Project-specific knowledge
+│   ├── PROMPT.planning.md    # Planning mode instructions
+│   ├── PROMPT.building.md    # Building mode instructions
+│   ├── hooks/                # Lifecycle hooks
+│   │   ├── started
+│   │   ├── next_iteration
+│   │   └── finished
+│   └── logs/                 # Iteration logs (gitignored)
+├── specs/                    # Specification files
+├── IMPLEMENTATION_PLAN.md    # Generated by planning mode
+└── CLAUDE.md                 # Project context
 ```
 
 ## Best Practices
@@ -160,48 +365,23 @@ The `AGENTS.md` file provides project-specific context to Claude:
 3. **Review the plan** - Ensure it matches your intent
 4. **Run building mode** - Execute with confidence
 
-This workflow ensures Claude understands your intent before writing code.
+## Verification
 
-## Docker Isolation
-
-For maximum safety, run Fresher in a Docker container:
+Verify your implementation plan covers all specifications:
 
 ```bash
-docker compose -f .fresher/docker/docker-compose.yml up
+fresher verify
 ```
 
-This provides:
-- Isolated filesystem
-- Network restrictions
-- Resource limits
-- Reproducible environment
-
-See [docker-isolation.md](specs/docker-isolation.md) for details.
-
-## Upgrading
-
-Check for updates:
+Output shows:
+- Coverage percentage per spec
+- Uncovered requirements
+- Orphan tasks (no spec reference)
 
 ```bash
-.fresher/bin/fresher version
+# JSON output for CI/CD
+fresher verify --json
 ```
-
-Upgrade to latest:
-
-```bash
-.fresher/bin/fresher upgrade
-```
-
-**What's preserved during upgrade:**
-- `config.sh` values (test/build commands, etc.)
-- `AGENTS.md` content
-- `hooks/*` customizations
-
-**What's replaced:**
-- Core scripts (`run.sh`, `lib/*`, `bin/*`)
-- Prompt templates (`PROMPT.*.md`)
-- Docker configuration
-- Test framework
 
 ## Troubleshooting
 
@@ -212,7 +392,7 @@ Upgrade to latest:
 **Solutions:**
 1. Check if tests are failing - fix failing tests
 2. Reduce scope in implementation plan
-3. Increase `FRESHER_MAX_ITERATIONS` if progress is being made
+3. Increase `max_iterations` if progress is being made
 
 ### Claude seems confused
 
@@ -239,31 +419,7 @@ Upgrade to latest:
 **Solutions:**
 1. Ensure hooks are executable: `chmod +x .fresher/hooks/*`
 2. Check hook scripts for syntax errors
-3. Verify shebang line: `#!/usr/bin/env bash`
-
-## Project Structure
-
-```
-project/
-├── .fresher/
-│   ├── run.sh                 # Main loop executor
-│   ├── VERSION                # Installed version
-│   ├── config.sh              # Configuration
-│   ├── PROMPT.planning.md     # Planning mode instructions
-│   ├── PROMPT.building.md     # Building mode instructions
-│   ├── AGENTS.md              # Project-specific knowledge
-│   ├── hooks/                 # Lifecycle hooks
-│   │   ├── started
-│   │   ├── next_iteration
-│   │   └── finished
-│   ├── lib/                   # Supporting scripts
-│   ├── bin/                   # CLI tools
-│   ├── docker/                # Docker isolation
-│   └── logs/                  # Iteration logs (gitignored)
-├── specs/                     # Specification files
-├── IMPLEMENTATION_PLAN.md     # Generated by planning mode
-└── CLAUDE.md                  # Project context
-```
+3. Verify shebang line: `#!/bin/bash`
 
 ## Contributing
 
