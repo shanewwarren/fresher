@@ -1,8 +1,9 @@
 # Project Scaffold Specification
 
-**Status:** In Progress (Phase 1 complete)
+**Status:** Needs Update (Implemented in Rust, spec describes Bash)
 **Version:** 1.0
-**Last Updated:** 2025-01-17
+**Last Updated:** 2026-01-18
+**Implementation:** `src/commands/init.rs`, `src/templates.rs`, `src/config.rs`
 
 ---
 

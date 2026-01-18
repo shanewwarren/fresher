@@ -1,8 +1,9 @@
 # Installer Specification
 
-**Status:** Planned
+**Status:** Needs Update (Implemented as `fresher upgrade`, spec describes curl installer)
 **Version:** 1.0
-**Last Updated:** 2026-01-17
+**Last Updated:** 2026-01-18
+**Implementation:** `src/commands/upgrade.rs`, `src/upgrade.rs`
 
 ---
 

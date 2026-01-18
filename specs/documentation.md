@@ -1,8 +1,8 @@
 # Documentation Specification
 
-**Status:** Planned
+**Status:** Planned (README exists but needs updating for v2.0)
 **Version:** 1.0
-**Last Updated:** 2026-01-17
+**Last Updated:** 2026-01-18
 
 ---
 

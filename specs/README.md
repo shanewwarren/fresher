@@ -6,10 +6,13 @@ Design documentation for a portable Ralph Loop implementation that enables AI-dr
 
 Fresher implements the Ralph Loop methodology - an iterative execution model with two modes (PLANNING and BUILDING) that uses fresh context each iteration, enabling specification-driven development with AI assistance.
 
+> **Note:** Fresher was rewritten from Bash to Rust in v2.0.0 for single-binary distribution. Some specs still reference the original Bash architecture and need updating.
+
 **Status Legend:**
 - **Planned** - Design complete, not yet implemented
 - **In Progress** - Currently being implemented
-- **Implemented** - Feature complete and tested
+- **Implemented** - Feature complete (Rust)
+- **Needs Update** - Implemented but spec describes old Bash architecture
 
 ---
 
@@ -17,51 +20,55 @@ Fresher implements the Ralph Loop methodology - an iterative execution model wit
 
 | Spec | Status | Purpose |
 |------|--------|---------|
-| [loop-executor.md](./loop-executor.md) | **Implemented** | Bash script running Claude Code iterations with streaming and termination control |
-| [prompt-templates.md](./prompt-templates.md) | **Implemented** | PROMPT.md files for PLANNING and BUILDING modes |
-| [project-scaffold.md](./project-scaffold.md) | In Progress | .fresher/ folder structure, templates, and initialization (Phase 1 done) |
+| [loop-executor.md](./loop-executor.md) | **Needs Update** | Loop execution via `fresher plan` and `fresher build` commands (Rust: commands/plan.rs, build.rs) |
+| [prompt-templates.md](./prompt-templates.md) | **Implemented** | PROMPT.md files for PLANNING and BUILDING modes (Rust: templates.rs) |
+| [project-scaffold.md](./project-scaffold.md) | **Needs Update** | `fresher init` command with project detection (Rust: commands/init.rs) |
 
 ## Verification & Quality
 
 | Spec | Status | Purpose |
 |------|--------|---------|
-| [plan-verification.md](./plan-verification.md) | Planned | Gap analysis comparing plan against specs and code |
+| [plan-verification.md](./plan-verification.md) | **Needs Update** | `fresher verify` command for spec coverage analysis (Rust: verify.rs) |
 | [self-testing.md](./self-testing.md) | Planned | Test scenarios to verify the loop works correctly |
 
 ## Extensibility
 
 | Spec | Status | Purpose |
 |------|--------|---------|
-| [lifecycle-hooks.md](./lifecycle-hooks.md) | In Progress | Event hooks for started, next_iteration, finished (basic hooks exist) |
-| [docker-isolation.md](./docker-isolation.md) | Planned | Devcontainer integration using official Claude Code image |
+| [lifecycle-hooks.md](./lifecycle-hooks.md) | **Implemented** | Bash hooks with timeout, exit codes, env vars (Rust: hooks.rs) |
+| [docker-isolation.md](./docker-isolation.md) | In Progress | Config exists, execution not yet wired up |
 
 ## Distribution & Usage
 
 | Spec | Status | Purpose |
 |------|--------|---------|
-| [installer.md](./installer.md) | Planned | One-command install/upgrade with version tracking and config preservation |
-| [project-integration.md](./project-integration.md) | Planned | .gitignore configuration, project type detection, CLAUDE.md integration |
+| [installer.md](./installer.md) | **Needs Update** | `fresher upgrade` command for self-update from GitHub (Rust: upgrade.rs) |
+| [project-integration.md](./project-integration.md) | **Implemented** | Part of `fresher init` - gitignore, project detection, CLAUDE.md |
 | [documentation.md](./documentation.md) | Planned | Comprehensive README with install, modes, hooks, config, troubleshooting |
 
 ---
 
 ## Quick Start
 
-Once implemented, usage will be:
-
 ```bash
+# Install Fresher (download binary or cargo install)
+cargo install fresher
+# Or download from GitHub releases
+
 # Initialize Fresher in a project
 fresher init
 
-# Run planning mode
+# Run planning mode (creates IMPLEMENTATION_PLAN.md)
 fresher plan
 
-# Run building mode
+# Run building mode (executes tasks from plan)
 fresher build
 
-# Or use local scripts directly
-./.fresher/run.sh planning
-./.fresher/run.sh building
+# Verify spec coverage
+fresher verify
+
+# Check for updates
+fresher upgrade --check
 ```
 
 ---
@@ -69,18 +76,23 @@ fresher build
 ## Architecture Overview
 
 ```
+# Rust Binary (single executable)
+fresher                        # CLI with subcommands: init, plan, build, verify, upgrade, version
+
+# Project Structure (created by `fresher init`)
 project/
 ├── .fresher/
-│   ├── run.sh                 # Main loop executor
+│   ├── config.toml            # Configuration (TOML format)
 │   ├── PROMPT.planning.md     # Planning mode instructions
 │   ├── PROMPT.building.md     # Building mode instructions
 │   ├── AGENTS.md              # Project-specific operational knowledge
-│   ├── config.sh              # Configuration variables
-│   ├── hooks/                 # Lifecycle hook scripts
+│   ├── hooks/                 # Lifecycle hook scripts (bash)
 │   │   ├── started
 │   │   ├── next_iteration
 │   │   └── finished
-│   └── logs/                  # Iteration logs
+│   ├── logs/                  # Iteration logs
+│   ├── .state                 # Runtime state (gitignored)
+│   └── docker/                # Docker isolation files (optional)
 ├── specs/                     # Specification files
 │   └── README.md
 ├── IMPLEMENTATION_PLAN.md     # Generated by planning mode

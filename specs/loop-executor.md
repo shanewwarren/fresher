@@ -1,8 +1,9 @@
 # Loop Executor Specification
 
-**Status:** Implemented
+**Status:** Needs Update (Implemented in Rust, spec describes Bash)
 **Version:** 1.0
-**Last Updated:** 2025-01-17
+**Last Updated:** 2026-01-18
+**Implementation:** `src/commands/plan.rs`, `src/commands/build.rs`, `src/streaming.rs`
 
 ---
 

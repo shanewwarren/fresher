@@ -1,8 +1,9 @@
 # Lifecycle Hooks Specification
 
-**Status:** In Progress (basic hooks exist)
+**Status:** Implemented
 **Version:** 1.0
-**Last Updated:** 2025-01-17
+**Last Updated:** 2026-01-18
+**Implementation:** `src/hooks.rs` (timeout, exit codes, env vars all working)
 
 ---
 

@@ -1,8 +1,10 @@
 # Implementation Plan
 
 Generated: 2025-01-17
-Last Updated: 2026-01-17
+Last Updated: 2026-01-18
 Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-executor.md, specs/prompt-templates.md, specs/docker-isolation.md, specs/plan-verification.md, specs/self-testing.md
+
+> **Note:** Fresher was rewritten from Bash to Rust in v2.0.0. Priorities 1-8 below reflect the original Bash implementation which has been superseded. See "Remaining Work" section for current tasks.
 
 ## Priority 1: fresher init Command ✅
 
@@ -387,6 +389,103 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
 
 ---
 
-## Future Work (Not Yet Planned)
+## Rust v2.0 Implementation Status ✅
 
-_All specs have been implemented._
+The following features have been fully implemented in Rust:
+
+| Component | Rust Files | Status |
+|-----------|-----------|--------|
+| CLI & Commands | `src/cli.rs`, `src/commands/*.rs` | ✅ Complete |
+| Init Command | `src/commands/init.rs` | ✅ Complete |
+| Plan/Build Commands | `src/commands/plan.rs`, `src/commands/build.rs` | ✅ Complete |
+| Verify Command | `src/commands/verify.rs`, `src/verify.rs` | ✅ Complete |
+| Upgrade Command | `src/commands/upgrade.rs`, `src/upgrade.rs` | ✅ Complete |
+| Streaming Output | `src/streaming.rs` | ✅ Complete |
+| Hooks System | `src/hooks.rs` | ✅ Complete |
+| Configuration | `src/config.rs` | ✅ Complete |
+| State Management | `src/state.rs` | ✅ Complete |
+| Templates | `src/templates.rs` | ✅ Complete |
+
+---
+
+## Remaining Work
+
+### Priority 9: Docker Isolation Execution
+
+- [ ] Wire Docker config to loop execution (refs: specs/docker-isolation.md §5.1)
+  - Dependencies: Docker config exists in `src/config.rs`
+  - Complexity: medium
+  - Implementation needed:
+    - Check `FRESHER_USE_DOCKER` in plan/build commands
+    - Detect if already in devcontainer (env vars)
+    - Spawn Docker container if enabled and not in container
+    - Pass through environment variables and mounts
+
+- [ ] Add `fresher docker` subcommand (refs: specs/docker-isolation.md §10)
+  - Dependencies: Docker execution
+  - Complexity: low
+  - Implementation needed:
+    - `fresher docker shell` - Open interactive shell in container
+    - `fresher docker build` - Build the devcontainer image
+
+### Priority 10: Rust Testing
+
+- [ ] Add unit tests for core modules (refs: specs/self-testing.md)
+  - Dependencies: none
+  - Complexity: medium
+  - Files to test:
+    - `src/config.rs` - Config loading and env overrides
+    - `src/verify.rs` - Spec parsing and coverage analysis
+    - `src/hooks.rs` - Hook execution and exit codes
+    - `src/streaming.rs` - Stream JSON parsing
+
+- [ ] Add integration tests (refs: specs/self-testing.md)
+  - Dependencies: unit tests
+  - Complexity: medium
+  - Tests needed:
+    - `fresher init` creates correct structure
+    - `fresher verify` produces correct report
+    - Hook timeout and abort behavior
+
+### Priority 11: Documentation
+
+- [ ] Update README.md for v2.0 (refs: specs/documentation.md)
+  - Dependencies: none
+  - Complexity: medium
+  - Content needed:
+    - Installation (cargo install, binary download)
+    - Quick start with new commands
+    - Configuration (TOML format)
+    - Docker isolation setup
+
+- [ ] Add CHANGELOG.md
+  - Dependencies: none
+  - Complexity: low
+  - Content: v2.0.0 release notes (Rust rewrite)
+
+### Priority 12: Spec Updates
+
+- [ ] Rewrite loop-executor.md for Rust architecture
+  - Dependencies: none
+  - Complexity: medium
+  - Changes: Remove bash references, document Rust implementation
+
+- [ ] Rewrite project-scaffold.md for Rust architecture
+  - Dependencies: none
+  - Complexity: medium
+  - Changes: Document `fresher init` command, TOML config
+
+- [ ] Rewrite plan-verification.md for Rust architecture
+  - Dependencies: none
+  - Complexity: low
+  - Changes: Document `fresher verify` command
+
+- [ ] Rewrite installer.md for Rust architecture
+  - Dependencies: none
+  - Complexity: low
+  - Changes: Document `fresher upgrade` and GitHub releases
+
+- [ ] Update self-testing.md for Rust testing
+  - Dependencies: Rust tests implemented
+  - Complexity: low
+  - Changes: Replace bash test examples with Rust test examples
