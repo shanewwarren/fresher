@@ -44,7 +44,13 @@ fi
 
 # Run planning mode (with timeout)
 echo "  Running planning mode..."
-timeout 30 .fresher/run.sh || exit_code=$?
+if command -v timeout >/dev/null 2>&1; then
+  timeout 30 .fresher/run.sh || exit_code=$?
+elif command -v gtimeout >/dev/null 2>&1; then
+  gtimeout 30 .fresher/run.sh || exit_code=$?
+else
+  .fresher/run.sh || exit_code=$?
+fi
 
 # Allow exit codes 0 (success) or anything from max iterations
 if [[ ${exit_code:-0} -gt 2 ]]; then
