@@ -283,6 +283,36 @@ echo "  Finish type: $FRESHER_FINISH_TYPE"
 exit 0
 "#;
 
+/// Dockerfile template
+pub const DOCKERFILE_TEMPLATE: &str = r#"# Fresher Docker Image
+# Based on Node.js with Claude Code CLI installed
+
+FROM node:20-bookworm
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    jq \
+    curl \
+    bash \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI globally
+RUN npm install -g @anthropic-ai/claude-code
+
+# Create non-root user home directory
+RUN mkdir -p /home/node/.claude && chown -R node:node /home/node
+
+# Switch to non-root user
+USER node
+
+# Set working directory
+WORKDIR /workspace
+
+# Default command
+CMD ["/workspace/.fresher/run.sh"]
+"#;
+
 /// Docker compose template
 pub const DOCKER_COMPOSE_TEMPLATE: &str = r#"# Fresher Docker Compose Configuration
 # For CLI-only workflow (without VS Code devcontainers)
@@ -292,13 +322,10 @@ pub const DOCKER_COMPOSE_TEMPLATE: &str = r#"# Fresher Docker Compose Configurat
 
 services:
   fresher:
-    image: ghcr.io/anthropics/claude-code-devcontainer:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: fresher-${FRESHER_MODE:-loop}
-
-    # Required for firewall setup
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
 
     # Interactive mode
     stdin_open: true
@@ -311,11 +338,7 @@ services:
     # Volume mounts
     volumes:
       - ${PWD}:/workspace
-      - fresher-bashhistory:/commandhistory
-      # OPTION A: API Key - use named volume for isolated credentials
-      # - fresher-config:/home/node/.claude
-      # OPTION B: OAuth/Max Plan - mount host credentials (recommended)
-      - ${HOME}/.claude:/home/node/.claude:ro
+      - fresher-claude-config:/home/node/.claude
 
     # Environment
     environment:
@@ -323,48 +346,37 @@ services:
       - FRESHER_MAX_ITERATIONS=${FRESHER_MAX_ITERATIONS:-0}
       - FRESHER_IN_DOCKER=true
       - DEVCONTAINER=true
-      # For API key users, uncomment:
-      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-
-    # User mapping
-    user: node
+      # For API key users, set ANTHROPIC_API_KEY in your environment
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
 
     # Working directory
     working_dir: /workspace
 
-    # Initialize firewall and run fresher
-    command: >
-      bash -c "sudo /usr/local/bin/init-firewall.sh &&
-               /workspace/.fresher/docker/fresher-firewall-overlay.sh 2>/dev/null || true &&
-               /workspace/.fresher/run.sh"
+    # Run fresher
+    command: /workspace/.fresher/run.sh
 
 volumes:
-  fresher-bashhistory:
-  # Only needed for API key users with isolated credentials:
-  # fresher-config:
+  fresher-claude-config:
 "#;
 
 /// Devcontainer.json template
 pub const DEVCONTAINER_TEMPLATE: &str = r#"{
   "name": "Fresher Loop Environment",
-  "image": "ghcr.io/anthropics/claude-code-devcontainer:latest",
-  "runArgs": [
-    "--cap-add=NET_ADMIN",
-    "--cap-add=NET_RAW"
-  ],
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
   "customizations": {
     "vscode": {
       "extensions": [
         "anthropic.claude-code"
       ],
       "settings": {
-        "terminal.integrated.defaultProfile.linux": "zsh"
+        "terminal.integrated.defaultProfile.linux": "bash"
       }
     }
   },
   "remoteUser": "node",
   "mounts": [
-    "source=fresher-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
     "source=fresher-config-${devcontainerId},target=/home/node/.claude,type=volume"
   ],
   "containerEnv": {
@@ -373,9 +385,7 @@ pub const DEVCONTAINER_TEMPLATE: &str = r#"{
     "DEVCONTAINER": "true"
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
-  "workspaceFolder": "/workspace",
-  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh && /workspace/.fresher/docker/fresher-firewall-overlay.sh 2>/dev/null || true",
-  "waitFor": "postStartCommand"
+  "workspaceFolder": "/workspace"
 }
 "#;
 

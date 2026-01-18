@@ -73,11 +73,12 @@ pub async fn run(force: bool) -> Result<()> {
     create_hook(".fresher/hooks/finished", templates::HOOK_FINISHED)?;
 
     // Create Docker files
+    fs::write(".fresher/docker/Dockerfile", templates::DOCKERFILE_TEMPLATE)
+        .context("Failed to write Dockerfile")?;
     fs::write(".fresher/docker/docker-compose.yml", templates::DOCKER_COMPOSE_TEMPLATE)
         .context("Failed to write docker-compose.yml")?;
     fs::write(".fresher/docker/devcontainer.json", templates::DEVCONTAINER_TEMPLATE)
         .context("Failed to write devcontainer.json")?;
-    create_hook(".fresher/docker/fresher-firewall-overlay.sh", templates::FIREWALL_OVERLAY_TEMPLATE)?;
     create_hook(".fresher/run.sh", templates::RUN_SCRIPT_TEMPLATE)?;
 
     // Create specs directory if it doesn't exist

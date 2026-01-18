@@ -354,27 +354,27 @@ async fn test_init_creates_docker_files() {
 
     // Check docker directory and files exist
     assert!(dir.path().join(".fresher/docker").exists());
+    assert!(dir.path().join(".fresher/docker/Dockerfile").exists());
     assert!(dir.path().join(".fresher/docker/docker-compose.yml").exists());
     assert!(dir.path().join(".fresher/docker/devcontainer.json").exists());
-    assert!(dir.path().join(".fresher/docker/fresher-firewall-overlay.sh").exists());
     assert!(dir.path().join(".fresher/run.sh").exists());
+
+    // Check Dockerfile content
+    let dockerfile_content = fs::read_to_string(dir.path().join(".fresher/docker/Dockerfile")).unwrap();
+    assert!(dockerfile_content.contains("FROM node:20-bookworm"));
+    assert!(dockerfile_content.contains("@anthropic-ai/claude-code"));
 
     // Check docker-compose.yml content
     let compose_content = fs::read_to_string(dir.path().join(".fresher/docker/docker-compose.yml")).unwrap();
     assert!(compose_content.contains("services:"));
     assert!(compose_content.contains("fresher:"));
     assert!(compose_content.contains("FRESHER_IN_DOCKER=true"));
+    assert!(compose_content.contains("build:"));
 
     // Check devcontainer.json content
     let devcontainer_content = fs::read_to_string(dir.path().join(".fresher/docker/devcontainer.json")).unwrap();
     assert!(devcontainer_content.contains("Fresher Loop Environment"));
-    assert!(devcontainer_content.contains("claude-code-devcontainer"));
-
-    // Check firewall overlay is executable
-    let firewall_path = dir.path().join(".fresher/docker/fresher-firewall-overlay.sh");
-    let metadata = fs::metadata(&firewall_path).unwrap();
-    let mode = metadata.permissions().mode();
-    assert!(mode & 0o111 != 0, "Firewall overlay should be executable");
+    assert!(devcontainer_content.contains("dockerfile"));
 
     // Check run.sh is executable
     let run_path = dir.path().join(".fresher/run.sh");
