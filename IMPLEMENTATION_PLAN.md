@@ -412,14 +412,15 @@ The following features have been fully implemented in Rust:
 
 ### Priority 9: Docker Isolation Execution
 
-- [ ] Wire Docker config to loop execution (refs: specs/docker-isolation.md §5.1)
+- [x] Wire Docker config to loop execution (refs: specs/docker-isolation.md §5.1)
   - Dependencies: Docker config exists in `src/config.rs`
-  - Complexity: medium
-  - Implementation needed:
-    - Check `FRESHER_USE_DOCKER` in plan/build commands
-    - Detect if already in devcontainer (env vars)
-    - Spawn Docker container if enabled and not in container
-    - Pass through environment variables and mounts
+  - Complexity: low
+  - Implementation:
+    - Created `src/docker.rs` module with container detection
+    - Checks `DEVCONTAINER=true` or `FRESHER_IN_DOCKER=true` env vars
+    - Added `enforce_docker_isolation()` to plan/build commands
+    - Shows informative message with options if Docker required but not in container
+    - Exits with error (status 1) to prevent execution outside container
 
 - [ ] Add `fresher docker` subcommand (refs: specs/docker-isolation.md §10)
   - Dependencies: Docker execution
