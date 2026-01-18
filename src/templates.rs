@@ -453,23 +453,24 @@ set -e
 
 # Determine mode from environment
 MODE="${FRESHER_MODE:-planning}"
+MAX_TURNS="${FRESHER_MAX_TURNS:-50}"
 
 echo "Starting fresher in $MODE mode..."
 
-# Check if fresher is installed
-if ! command -v fresher &> /dev/null; then
-  echo "Error: fresher command not found"
-  echo "Please install fresher or ensure it's in your PATH"
+# Check if claude is installed
+if ! command -v claude &> /dev/null; then
+  echo "Error: claude command not found"
+  echo "Please install Claude Code CLI"
   exit 1
 fi
 
-# Run the appropriate mode
+# Select the appropriate prompt file
 case "$MODE" in
   planning|plan)
-    exec fresher plan
+    PROMPT_FILE="/workspace/.fresher/PROMPT.planning.md"
     ;;
   building|build)
-    exec fresher build
+    PROMPT_FILE="/workspace/.fresher/PROMPT.building.md"
     ;;
   *)
     echo "Unknown mode: $MODE"
@@ -477,4 +478,17 @@ case "$MODE" in
     exit 1
     ;;
 esac
+
+# Check prompt file exists
+if [[ ! -f "$PROMPT_FILE" ]]; then
+  echo "Error: Prompt file not found: $PROMPT_FILE"
+  echo "Run 'fresher init' in your project first"
+  exit 1
+fi
+
+# Read the prompt
+PROMPT=$(cat "$PROMPT_FILE")
+
+# Run claude with the prompt
+exec claude --dangerously-skip-permissions --max-turns "$MAX_TURNS" -p "$PROMPT"
 "#;

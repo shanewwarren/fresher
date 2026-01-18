@@ -382,8 +382,9 @@ async fn test_init_creates_docker_files() {
     let mode = metadata.permissions().mode();
     assert!(mode & 0o111 != 0, "run.sh should be executable");
 
-    // Check run.sh invokes fresher commands
+    // Check run.sh invokes claude with prompts
     let run_content = fs::read_to_string(&run_path).unwrap();
-    assert!(run_content.contains("fresher plan"));
-    assert!(run_content.contains("fresher build"));
+    assert!(run_content.contains("PROMPT.planning.md"));
+    assert!(run_content.contains("PROMPT.building.md"));
+    assert!(run_content.contains("claude"));
 }
