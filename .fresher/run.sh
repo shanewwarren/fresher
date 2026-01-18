@@ -318,17 +318,31 @@ while true; do
         if [[ -n "$content" ]]; then
           echo "$content"
         fi
-        # Show tool calls
-        tools=$(echo "$line" | jq -r '.message.content[]? | select(.type == "tool_use") | "→ \(.name)"' 2>/dev/null)
-        if [[ -n "$tools" ]]; then
-          echo "$tools"
-        fi
+        # Show tool calls with details
+        echo "$line" | jq -r '
+          .message.content[]? | select(.type == "tool_use") |
+          if .name == "Read" then "→ Read: \(.input.file_path // "?")"
+          elif .name == "Edit" then "→ Edit: \(.input.file_path // "?")"
+          elif .name == "Write" then "→ Write: \(.input.file_path // "?")"
+          elif .name == "Bash" then "→ Bash: \(.input.command // "?" | .[0:100])"
+          elif .name == "Glob" then "→ Glob: \(.input.pattern // "?")"
+          elif .name == "Grep" then "→ Grep: \(.input.pattern // "?") in \(.input.path // ".")"
+          elif .name == "Task" then "→ Task: \(.input.description // "?")"
+          elif .name == "TodoWrite" then "→ TodoWrite"
+          else "→ \(.name)"
+          end
+        ' 2>/dev/null | while read -r tool_line; do
+          [[ -n "$tool_line" ]] && echo "$tool_line"
+        done
         ;;
       "content_block_start")
-        # Tool use starting - show the tool name
-        tool_name=$(echo "$line" | jq -r '.content_block.name // empty' 2>/dev/null)
-        if [[ -n "$tool_name" ]]; then
-          printf "→ %s " "$tool_name"
+        # Tool use starting - show the tool name with input details
+        block_type=$(echo "$line" | jq -r '.content_block.type // empty' 2>/dev/null)
+        if [[ "$block_type" == "tool_use" ]]; then
+          tool_name=$(echo "$line" | jq -r '.content_block.name // empty' 2>/dev/null)
+          if [[ -n "$tool_name" ]]; then
+            printf "→ %s" "$tool_name"
+          fi
         fi
         ;;
       "content_block_delta")
@@ -337,17 +351,38 @@ while true; do
         if [[ -n "$delta" ]]; then
           printf "%s" "$delta"
         fi
+        # Also capture tool input for display
+        partial_json=$(echo "$line" | jq -r '.delta.partial_json // empty' 2>/dev/null)
+        # (partial_json accumulates but we show full details in assistant message)
         ;;
       "content_block_stop")
         # End of a content block
         echo ""
         ;;
       "user")
-        # Tool results - show summary
-        tool_result=$(echo "$line" | jq -r '.message.content[]? | select(.type == "tool_result") | "  ✓ \(.tool_use_id | split("_")[0:2] | join("_"))"' 2>/dev/null)
-        if [[ -n "$tool_result" ]]; then
-          echo "$tool_result"
-        fi
+        # Tool results - show content summary
+        echo "$line" | jq -r '
+          .message.content[]? | select(.type == "tool_result") |
+          .content as $content |
+          if ($content | type) == "string" then
+            if ($content | length) > 200 then
+              "  ✓ \($content | .[0:200])..."
+            else
+              "  ✓ \($content)"
+            end
+          elif ($content | type) == "array" then
+            ($content | map(select(.type == "text")) | .[0].text // "") as $text |
+            if ($text | length) > 200 then
+              "  ✓ \($text | .[0:200])..."
+            else
+              "  ✓ \($text)"
+            end
+          else
+            "  ✓ (completed)"
+          end
+        ' 2>/dev/null | while read -r result_line; do
+          [[ -n "$result_line" ]] && echo "$result_line"
+        done
         ;;
       "result")
         # Final result
