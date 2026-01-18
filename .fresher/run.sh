@@ -288,8 +288,8 @@ while true; do
   # Set model
   CLAUDE_CMD+=(--model "$FRESHER_MODEL")
 
-  # Add stream-json output format for parsing
-  CLAUDE_CMD+=(--output-format stream-json)
+  # Add stream-json output format for parsing (requires --verbose with -p)
+  CLAUDE_CMD+=(--verbose --output-format stream-json)
 
   # Set up iteration log file
   LOG_FILE="$FRESHER_LOG_DIR/iteration-${ITERATION}.log"
