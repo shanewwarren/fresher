@@ -264,11 +264,75 @@ exit 0
 
 ## Docker Isolation
 
-For maximum safety, run Fresher in a Docker container with network restrictions and resource limits.
+For maximum safety, run Fresher in a Docker container with resource limits and an isolated environment.
 
-### Setup
+### Quick Start
 
-1. Enable Docker in config:
+```bash
+# Initialize fresher (creates .fresher/docker/ files)
+fresher init
+
+# Run with Docker Compose
+docker compose -f .fresher/docker/docker-compose.yml run --rm fresher
+```
+
+### Authentication
+
+Claude requires authentication inside the container. Choose based on your plan:
+
+#### Option A: API Key (Pay-as-you-go / Teams)
+
+Set your API key before running:
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+docker compose -f .fresher/docker/docker-compose.yml run --rm fresher
+```
+
+#### Option B: OAuth (Max / Pro Plans)
+
+OAuth credentials are stored in the macOS Keychain and aren't accessible from Docker. Authenticate inside the container:
+
+```bash
+# Start a shell in the container
+docker compose -f .fresher/docker/docker-compose.yml run --rm fresher /bin/bash
+
+# Inside the container, run claude and login
+claude
+# Type: /login
+# Follow the browser auth flow
+# Exit claude with: /exit
+```
+
+The credentials persist in the Docker volume. Now run fresher:
+
+```bash
+docker compose -f .fresher/docker/docker-compose.yml run --rm fresher
+```
+
+### Adding MCP Servers
+
+To add MCP servers (like Context7), create `.claude/settings.local.json` in your project:
+
+```bash
+mkdir -p .claude
+cat > .claude/settings.local.json << 'EOF'
+{
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"]
+    }
+  }
+}
+EOF
+```
+
+The file is mounted into the container with your project.
+
+### Configuration
+
+Enable Docker isolation in `.fresher/config.toml`:
 
 ```toml
 [docker]
@@ -277,35 +341,17 @@ memory = "4g"
 cpus = "2"
 ```
 
-2. Build the devcontainer:
+Or via environment variable:
 
 ```bash
-fresher docker build
-```
-
-3. Run Fresher:
-
-```bash
-fresher docker shell
-# Inside container:
-fresher plan
-fresher build
+export FRESHER_USE_DOCKER=true
 ```
 
 ### What Docker Provides
 
 - **Isolated filesystem** - Changes contained to mounted volume
-- **Network restrictions** - Firewall limits outbound connections
 - **Resource limits** - Memory and CPU constraints
 - **Reproducible environment** - Consistent execution context
-
-### Manual Docker Compose
-
-You can also run directly with Docker Compose:
-
-```bash
-docker compose -f .fresher/docker/docker-compose.yml up
-```
 
 ## Project Structure
 
