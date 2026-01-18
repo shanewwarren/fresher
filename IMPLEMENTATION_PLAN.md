@@ -8,16 +8,16 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
 
 ## Current Status
 
-**Fresher v2.1** - Rust rewrite is feature-complete. Docker UX improvements in progress.
+**Fresher v2.1** - Rust rewrite is feature-complete. Docker UX improvements complete.
 
 | Category | Status | Tests |
 |----------|--------|-------|
 | Core Implementation | ✅ Complete | - |
 | Docker Isolation | ✅ Complete | - |
-| Docker UX | 🔄 In Progress | - |
-| Unit Tests | ✅ Complete | 75 |
-| Integration Tests | ✅ Complete | 45 |
-| **Total Tests** | | **120** |
+| Docker UX | ✅ Complete | - |
+| Unit Tests | ✅ Complete | 77 |
+| Integration Tests | ✅ Complete | 46 |
+| **Total Tests** | | **123** |
 
 ### Spec Updates (Priority 12) ✅ **COMPLETE**
 
@@ -517,11 +517,11 @@ The following features have been fully implemented in Rust:
 
 ---
 
-## Priority 13: Docker UX Improvements
+## Priority 13: Docker UX Improvements ✅ **COMPLETE**
 
 Seamless Docker experience where `fresher plan/build` auto-launches containers with streaming output and declarative dependency presets.
 
-- [ ] Add `run_in_container()` orchestration to docker.rs (refs: specs/docker-ux.md §4.1)
+- [x] Add `run_in_container()` orchestration to docker.rs (refs: specs/docker-ux.md §4.1)
   - Dependencies: Existing docker.rs module
   - Complexity: medium
   - File: `src/docker.rs`
@@ -533,7 +533,7 @@ Seamless Docker experience where `fresher plan/build` auto-launches containers w
     - Inherit stdin/stdout/stderr for streaming
     - Forward exit code to caller
 
-- [ ] Update plan.rs and build.rs to call orchestration (refs: specs/docker-ux.md §4.1)
+- [x] Update plan.rs and build.rs to call orchestration (refs: specs/docker-ux.md §4.1)
   - Dependencies: `run_in_container()` implemented
   - Complexity: low
   - Files: `src/commands/plan.rs`, `src/commands/build.rs`
@@ -542,7 +542,7 @@ Seamless Docker experience where `fresher plan/build` auto-launches containers w
     - If returns exit code, propagate and exit
     - If returns sentinel (-1), continue with normal execution
 
-- [ ] Add preset configuration to DockerConfig (refs: specs/docker-ux.md §3.1)
+- [x] Add preset configuration to DockerConfig (refs: specs/docker-ux.md §3.1)
   - Dependencies: none
   - Complexity: low
   - File: `src/config.rs`
@@ -551,7 +551,7 @@ Seamless Docker experience where `fresher plan/build` auto-launches containers w
     - Add `setup_script: Option<String>` field
     - Support presets: "rust", "node", "bun", "python", "go"
 
-- [ ] Implement Dockerfile generation with presets (refs: specs/docker-ux.md §4.3)
+- [x] Implement Dockerfile generation with presets (refs: specs/docker-ux.md §4.3)
   - Dependencies: Preset configuration
   - Complexity: medium
   - File: `src/docker.rs`
@@ -562,7 +562,7 @@ Seamless Docker experience where `fresher plan/build` auto-launches containers w
     - Support custom setup_script if specified
     - Write to `.fresher/docker/Dockerfile.generated`
 
-- [ ] Add image caching with preset hash (refs: specs/docker-ux.md §4.4)
+- [x] Add image caching with preset hash (refs: specs/docker-ux.md §4.4)
   - Dependencies: Dockerfile generation
   - Complexity: low
   - File: `src/docker.rs`
@@ -572,16 +572,17 @@ Seamless Docker experience where `fresher plan/build` auto-launches containers w
     - Check if image exists before building
     - Only rebuild when presets change
 
-- [ ] Update templates for new docker-compose.yml (refs: specs/docker-ux.md §5)
+- [x] Update templates for new docker-compose.yml (refs: specs/docker-ux.md §5)
   - Dependencies: All above tasks
   - Complexity: low
-  - File: `src/templates.rs`
+  - File: `src/docker.rs`
   - Implementation:
-    - Update DOCKER_COMPOSE_TEMPLATE to use generated image tag
+    - Added `generate_docker_compose()` function for dynamic generation
+    - Uses image tag based on presets
     - Ensure TTY allocation with `stdin_open: true` and `tty: true`
     - Mount host credentials for OAuth
 
-- [ ] Add documentation and error messages (refs: specs/docker-ux.md §6)
+- [x] Add documentation and error messages (refs: specs/docker-ux.md §6)
   - Dependencies: All above tasks
   - Complexity: low
   - Files: `README.md`, `src/docker.rs`

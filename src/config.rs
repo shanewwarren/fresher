@@ -48,6 +48,12 @@ pub struct DockerConfig {
     pub use_docker: bool,
     pub memory: String,
     pub cpus: String,
+    /// Toolchain presets to install: "rust", "node", "bun", "python", "go"
+    #[serde(default)]
+    pub presets: Vec<String>,
+    /// Optional custom setup script path (relative to .fresher/)
+    #[serde(default)]
+    pub setup_script: Option<String>,
 }
 
 impl Default for Config {
@@ -79,6 +85,8 @@ impl Default for Config {
                 use_docker: false,
                 memory: "4g".to_string(),
                 cpus: "2".to_string(),
+                presets: Vec::new(),
+                setup_script: None,
             },
         }
     }
@@ -177,6 +185,12 @@ impl Config {
         }
         if let Ok(val) = env::var("FRESHER_DOCKER_CPUS") {
             self.docker.cpus = val;
+        }
+        if let Ok(val) = env::var("FRESHER_DOCKER_PRESETS") {
+            self.docker.presets = val.split(',').map(|s| s.trim().to_string()).collect();
+        }
+        if let Ok(val) = env::var("FRESHER_DOCKER_SETUP_SCRIPT") {
+            self.docker.setup_script = Some(val);
         }
     }
 
@@ -327,6 +341,8 @@ mod tests {
         assert!(!config.docker.use_docker);
         assert_eq!(config.docker.memory, "4g");
         assert_eq!(config.docker.cpus, "2");
+        assert!(config.docker.presets.is_empty());
+        assert!(config.docker.setup_script.is_none());
     }
 
     #[test]
@@ -398,6 +414,33 @@ mod tests {
         env::remove_var("FRESHER_USE_DOCKER");
         env::remove_var("FRESHER_DOCKER_MEMORY");
         env::remove_var("FRESHER_DOCKER_CPUS");
+    }
+
+    #[test]
+    fn test_env_override_docker_presets() {
+        let mut config = Config::default();
+
+        env::set_var("FRESHER_DOCKER_PRESETS", "rust, bun, python");
+        config.apply_env_overrides();
+
+        assert_eq!(config.docker.presets, vec!["rust", "bun", "python"]);
+
+        env::remove_var("FRESHER_DOCKER_PRESETS");
+    }
+
+    #[test]
+    fn test_env_override_docker_setup_script() {
+        let mut config = Config::default();
+
+        env::set_var("FRESHER_DOCKER_SETUP_SCRIPT", "docker/custom-setup.sh");
+        config.apply_env_overrides();
+
+        assert_eq!(
+            config.docker.setup_script,
+            Some("docker/custom-setup.sh".to_string())
+        );
+
+        env::remove_var("FRESHER_DOCKER_SETUP_SCRIPT");
     }
 
     #[test]

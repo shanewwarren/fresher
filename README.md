@@ -159,6 +159,8 @@ timeout = 30
 use_docker = false
 memory = "4g"
 cpus = "2"
+presets = []  # Options: "rust", "node", "bun", "python", "go"
+# setup_script = "docker/custom-setup.sh"  # Optional
 ```
 
 ### Configuration Reference
@@ -179,9 +181,11 @@ cpus = "2"
 | | `src_dir` | Source directory | `"src"` |
 | `hooks` | `enabled` | Enable lifecycle hooks | `true` |
 | | `timeout` | Hook timeout (seconds) | `30` |
-| `docker` | `use_docker` | Require Docker isolation | `false` |
+| `docker` | `use_docker` | Enable Docker isolation | `false` |
 | | `memory` | Container memory limit | `"4g"` |
 | | `cpus` | Container CPU limit | `"2"` |
+| | `presets` | Toolchain presets to install | `[]` |
+| | `setup_script` | Custom setup script path | `null` |
 
 ### Environment Variables
 
@@ -217,6 +221,8 @@ FRESHER_HOOKS_ENABLED=false fresher build
 | `FRESHER_USE_DOCKER` | `docker.use_docker` |
 | `FRESHER_DOCKER_MEMORY` | `docker.memory` |
 | `FRESHER_DOCKER_CPUS` | `docker.cpus` |
+| `FRESHER_DOCKER_PRESETS` | `docker.presets` (comma-separated) |
+| `FRESHER_DOCKER_SETUP_SCRIPT` | `docker.setup_script` |
 
 ## Hooks
 
@@ -266,14 +272,85 @@ exit 0
 
 For maximum safety, run Fresher in a Docker container with resource limits and an isolated environment.
 
-### Quick Start
+### Quick Start (Automatic)
+
+When Docker is enabled, `fresher plan` and `fresher build` automatically launch containers:
+
+```bash
+# Initialize fresher with Docker enabled
+fresher init
+
+# Edit config.toml to enable Docker
+# [docker]
+# use_docker = true
+
+# Now fresher auto-launches Docker when needed
+fresher plan   # Automatically runs in container
+fresher build  # Automatically runs in container
+```
+
+### Quick Start (Manual)
 
 ```bash
 # Initialize fresher (creates .fresher/docker/ files)
 fresher init
 
 # Run with Docker Compose
-docker compose -f .fresher/docker/docker-compose.yml run --rm fresher
+docker compose -f .fresher/docker/docker-compose.yml run --rm fresher fresher plan
+```
+
+### Toolchain Presets
+
+Pre-configure development toolchains without editing Dockerfiles:
+
+```toml
+[docker]
+use_docker = true
+presets = ["rust", "bun"]  # Auto-install these toolchains
+```
+
+Available presets:
+
+| Preset | Description |
+|--------|-------------|
+| `rust` | Rust toolchain via rustup |
+| `node` | Node.js (already in base image) |
+| `bun` | Bun JavaScript runtime |
+| `python` | Python 3 with pip |
+| `go` | Go programming language |
+
+Presets are cached - the image is only rebuilt when presets change:
+
+```
+$ fresher plan
+[Docker] Building image with presets: ["rust", "bun"]
+[Docker] Step 1/4: FROM ghcr.io/anthropics/claude-code-devcontainer:latest
+...
+[Docker] Image built successfully
+[Docker] Starting container...
+
+$ fresher plan  # Second run uses cache
+[Docker] Using cached image
+[Docker] Starting container...
+```
+
+### Custom Setup Script
+
+For additional customization, add a setup script:
+
+```toml
+[docker]
+use_docker = true
+presets = ["node"]
+setup_script = "docker/custom-setup.sh"  # Relative to .fresher/
+```
+
+Create `.fresher/docker/custom-setup.sh`:
+
+```bash
+#!/bin/bash
+npm install -g pnpm
+apt-get install -y jq
 ```
 
 ### Authentication

@@ -185,6 +185,8 @@ mod tests {
                 use_docker: false,
                 memory: "4g".to_string(),
                 cpus: "2".to_string(),
+                presets: Vec::new(),
+                setup_script: None,
             },
         }
     }

@@ -27,8 +27,16 @@ pub async fn run(max_iterations: Option<u32>) -> Result<()> {
     let mut config = Config::load()?;
     config.fresher.mode = "planning".to_string();
 
-    // Check Docker isolation requirements
-    docker::enforce_docker_isolation(config.docker.use_docker)?;
+    // Try Docker orchestration first (auto-launches container if enabled)
+    let mut docker_args = vec!["plan".to_string()];
+    if let Some(max) = max_iterations {
+        docker_args.push("--max-iterations".to_string());
+        docker_args.push(max.to_string());
+    }
+    match docker::run_in_container(&config, &docker_args)? {
+        docker::PROCEED_NORMALLY => {} // Continue with normal execution
+        code => std::process::exit(code), // Docker handled it, exit with its code
+    }
 
     // Override max_iterations if provided
     if let Some(max) = max_iterations {
