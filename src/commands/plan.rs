@@ -6,6 +6,7 @@ use tokio::process::Command;
 use tokio::signal;
 
 use crate::config::Config;
+use crate::docker;
 use crate::hooks;
 use crate::state::{count_commits_since, get_current_sha, FinishType, State};
 use crate::streaming::{process_stream, StreamHandler};
@@ -25,6 +26,9 @@ pub async fn run(max_iterations: Option<u32>) -> Result<()> {
     // Load configuration
     let mut config = Config::load()?;
     config.fresher.mode = "planning".to_string();
+
+    // Check Docker isolation requirements
+    docker::enforce_docker_isolation(config.docker.use_docker)?;
 
     // Override max_iterations if provided
     if let Some(max) = max_iterations {

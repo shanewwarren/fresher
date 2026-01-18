@@ -1,6 +1,7 @@
 mod cli;
 mod commands;
 mod config;
+mod docker;
 mod hooks;
 mod state;
 mod streaming;
