@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Verify VERSION file matches tag
+        run: |
+          file_version=$(cat .fresher/VERSION | tr -d '[:space:]')
+          tag_version="${{ steps.version.outputs.version }}"
+          if [ "$file_version" != "$tag_version" ]; then
+            echo "ERROR: VERSION file ($file_version) does not match tag ($tag_version)"
+            exit 1
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Fresher v${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          body: |
+            ## Installation
+
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/shanewwarren/fresher/main/install.sh | bash
+            ```
+
+            Or install this specific version:
+
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/shanewwarren/fresher/main/install.sh | bash -s -- --version=${{ steps.version.outputs.version }}
+            ```
