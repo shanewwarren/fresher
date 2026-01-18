@@ -312,10 +312,23 @@ while true; do
 
     case "$event_type" in
       "assistant")
-        # Extract and display assistant message content
+        # Extract and display assistant message content (text and tool use)
+        # Show text content
         content=$(echo "$line" | jq -r '.message.content[]? | select(.type == "text") | .text // empty' 2>/dev/null)
         if [[ -n "$content" ]]; then
           echo "$content"
+        fi
+        # Show tool calls
+        tools=$(echo "$line" | jq -r '.message.content[]? | select(.type == "tool_use") | "→ \(.name)"' 2>/dev/null)
+        if [[ -n "$tools" ]]; then
+          echo "$tools"
+        fi
+        ;;
+      "content_block_start")
+        # Tool use starting - show the tool name
+        tool_name=$(echo "$line" | jq -r '.content_block.name // empty' 2>/dev/null)
+        if [[ -n "$tool_name" ]]; then
+          printf "→ %s " "$tool_name"
         fi
         ;;
       "content_block_delta")
@@ -326,15 +339,21 @@ while true; do
         fi
         ;;
       "content_block_stop")
-        # End of a content block - add newline if needed
+        # End of a content block
+        echo ""
+        ;;
+      "user")
+        # Tool results - show summary
+        tool_result=$(echo "$line" | jq -r '.message.content[]? | select(.type == "tool_result") | "  ✓ \(.tool_use_id | split("_")[0:2] | join("_"))"' 2>/dev/null)
+        if [[ -n "$tool_result" ]]; then
+          echo "$tool_result"
+        fi
         ;;
       "result")
-        # Final result - could be used for termination analysis
-        # For now, just log it (already written to log file above)
+        # Final result
         ;;
       "")
         # Not JSON or empty type - might be stderr or plain text
-        # Display as-is if it's not empty
         if [[ -n "$line" ]]; then
           echo "$line"
         fi
