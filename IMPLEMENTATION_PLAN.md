@@ -8,7 +8,7 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
 
 ## Current Status
 
-**Fresher v2.1** - Rust rewrite is feature-complete. Docker UX improvements complete.
+**Fresher v2.1** - Rust rewrite is feature-complete. All planned features implemented.
 
 | Category | Status | Tests |
 |----------|--------|-------|
@@ -18,6 +18,16 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
 | Unit Tests | ✅ Complete | 77 |
 | Integration Tests | ✅ Complete | 46 |
 | **Total Tests** | | **123** |
+
+### Recent Changes (Priority 13)
+
+Implemented seamless Docker UX where `fresher plan/build` auto-launches containers:
+
+- **Auto-orchestration**: Commands automatically launch Docker when `use_docker=true`
+- **Toolchain presets**: Declarative setup with `presets = ["rust", "bun"]` in config
+- **Image caching**: Preset-based hash prevents unnecessary rebuilds
+- **Streaming output**: Real-time Claude output via inherited TTY
+- **Documentation**: README updated with preset configuration guide
 
 ### Spec Updates (Priority 12) ✅ **COMPLETE**
 
@@ -591,3 +601,62 @@ Seamless Docker experience where `fresher plan/build` auto-launches containers w
     - Add helpful error when Docker not installed
     - Show build progress during image creation
     - Display "[Docker] Using cached image" on subsequent runs
+
+---
+
+## Future Work (Potential Enhancements)
+
+The following items are potential future enhancements, not currently scheduled:
+
+### Docker Improvements
+
+- [ ] Add `fresher docker status` command (refs: specs/docker-ux.md §10)
+  - Show current image tag, container state, preset configuration
+  - Display cache status and last build time
+  - Complexity: low
+
+- [ ] Preset version pinning
+  - Allow specifying versions: `presets = ["rust:1.75", "node:20"]`
+  - Update PRESETS constant to support version variants
+  - Complexity: medium
+
+- [ ] Preset dependencies
+  - Auto-install build-essential for compiled languages
+  - Handle preset conflicts gracefully
+  - Complexity: medium
+
+### Developer Experience
+
+- [ ] Add `fresher watch` command
+  - File watcher that triggers plan/build on spec changes
+  - Could use notify crate for cross-platform file watching
+  - Complexity: medium
+
+- [ ] Progress indicators
+  - Show progress bar during long operations
+  - Display estimated time remaining
+  - Complexity: low
+
+- [ ] Session resumption
+  - Save loop state to allow resuming after interruption
+  - Track which tasks were in progress
+  - Complexity: medium
+
+### Integration
+
+- [ ] GitHub Actions workflow template
+  - Pre-built CI/CD configuration for fresher
+  - Auto-run verification on PR
+  - Complexity: low
+
+- [ ] VS Code extension
+  - Sidebar panel showing loop status
+  - Quick commands for plan/build/verify
+  - Complexity: high
+
+### Testing
+
+- [ ] Add Docker integration tests
+  - Test auto-orchestration with mock Docker
+  - Test preset image building
+  - Complexity: medium
