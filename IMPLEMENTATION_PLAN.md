@@ -1,7 +1,7 @@
 # Implementation Plan
 
 Generated: 2025-01-17
-Last Updated: 2026-01-18
+Last Updated: 2026-01-18 (Priority 10 integration tests complete)
 Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-executor.md, specs/prompt-templates.md, specs/docker-isolation.md, specs/plan-verification.md, specs/self-testing.md
 
 > **Note:** Fresher was rewritten from Bash to Rust in v2.0.0. Priorities 1-8 below reflect the original Bash implementation which has been superseded. See "Remaining Work" section for current tasks.
@@ -408,9 +408,7 @@ The following features have been fully implemented in Rust:
 
 ---
 
-## Remaining Work
-
-### Priority 9: Docker Isolation Execution
+## Priority 9: Docker Isolation Execution ✅
 
 - [x] Wire Docker config to loop execution (refs: specs/docker-isolation.md §5.1)
   - Dependencies: Docker config exists in `src/config.rs`
@@ -422,31 +420,39 @@ The following features have been fully implemented in Rust:
     - Shows informative message with options if Docker required but not in container
     - Exits with error (status 1) to prevent execution outside container
 
-- [ ] Add `fresher docker` subcommand (refs: specs/docker-isolation.md §10)
+- [x] Add `fresher docker` subcommand (refs: specs/docker-isolation.md §10)
   - Dependencies: Docker execution
   - Complexity: low
-  - Implementation needed:
-    - `fresher docker shell` - Open interactive shell in container
-    - `fresher docker build` - Build the devcontainer image
+  - Implementation:
+    - Created `src/commands/docker.rs` with shell and build subcommands
+    - `fresher docker shell` - Opens interactive bash shell in devcontainer
+    - `fresher docker build` - Builds the devcontainer image via docker compose
+    - Supports both docker compose v2 and docker-compose v1
 
-### Priority 10: Rust Testing
+---
 
-- [ ] Add unit tests for core modules (refs: specs/self-testing.md)
+## Remaining Work
+
+### Priority 10: Rust Testing ✅
+
+- [x] Add unit tests for core modules (refs: specs/self-testing.md)
   - Dependencies: none
   - Complexity: medium
-  - Files to test:
-    - `src/config.rs` - Config loading and env overrides
-    - `src/verify.rs` - Spec parsing and coverage analysis
-    - `src/hooks.rs` - Hook execution and exit codes
-    - `src/streaming.rs` - Stream JSON parsing
+  - Files tested:
+    - `src/config.rs` - Config loading and env overrides (14 tests)
+    - `src/verify.rs` - Spec parsing and coverage analysis (22 tests)
+    - `src/hooks.rs` - Hook execution and exit codes (17 tests)
+    - `src/streaming.rs` - Stream JSON parsing (22 tests)
+  - **Unit tests: 75 passing**
 
-- [ ] Add integration tests (refs: specs/self-testing.md)
-  - Dependencies: unit tests
+- [x] Add integration tests (refs: specs/self-testing.md)
+  - Dependencies: unit tests ✅
   - Complexity: medium
-  - Tests needed:
-    - `fresher init` creates correct structure
-    - `fresher verify` produces correct report
-    - Hook timeout and abort behavior
+  - Files added:
+    - `tests/init.rs` - 15 tests for init command
+    - `tests/verify.rs` - 13 tests for verify command
+    - `tests/hooks.rs` - 17 tests for hook behavior
+  - **Total: 45 integration tests passing**
 
 ### Priority 11: Documentation
 

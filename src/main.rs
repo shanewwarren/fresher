@@ -1,17 +1,7 @@
-mod cli;
-mod commands;
-mod config;
-mod docker;
-mod hooks;
-mod state;
-mod streaming;
-mod templates;
-mod upgrade;
-mod verify;
-
 use anyhow::Result;
 use clap::Parser;
-use cli::{Cli, Commands};
+use fresher::cli::{Cli, Commands, DockerCommands};
+use fresher::commands;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -24,5 +14,9 @@ async fn main() -> Result<()> {
         Commands::Verify { json, plan_file } => commands::verify::run(json, plan_file).await,
         Commands::Upgrade { check } => commands::upgrade::run(check).await,
         Commands::Version => commands::version::run(),
+        Commands::Docker { command } => match command {
+            DockerCommands::Shell => commands::docker::run_shell().await,
+            DockerCommands::Build => commands::docker::run_build().await,
+        },
     }
 }
