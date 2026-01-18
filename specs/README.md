@@ -37,6 +37,7 @@ Fresher implements the Ralph Loop methodology - an iterative execution model wit
 |------|--------|---------|
 | [lifecycle-hooks.md](./lifecycle-hooks.md) | **Implemented** | Bash hooks with timeout, exit codes, env vars (Rust: hooks.rs) |
 | [docker-isolation.md](./docker-isolation.md) | In Progress | Config exists, execution not yet wired up |
+| [docker-ux.md](./docker-ux.md) | Planned | Auto-orchestration, streaming output, dependency presets |
 
 ## Distribution & Usage
 
