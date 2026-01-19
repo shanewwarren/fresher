@@ -24,9 +24,9 @@ pub struct Preset {
 pub const PRESETS: &[Preset] = &[
     Preset {
         name: "rust",
-        description: "Rust toolchain via rustup",
+        description: "Rust toolchain via rustup (system-wide)",
         install_commands: &[
-            "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+            "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo sh -s -- -y --no-modify-path",
         ],
     },
     Preset {
@@ -303,10 +303,16 @@ RUN chmod +x /tmp/custom-setup.sh && /tmp/custom-setup.sh
         ));
     }
 
+    // Set environment variables for presets
+    if docker_config.presets.iter().any(|p| p == "rust") {
+        dockerfile.push_str("ENV RUSTUP_HOME=/usr/local/rustup\n");
+        dockerfile.push_str("ENV CARGO_HOME=/usr/local/cargo\n");
+    }
+
     // Set PATH for Rust and Go if those presets are used
     let mut env_additions = Vec::new();
     if docker_config.presets.iter().any(|p| p == "rust") {
-        env_additions.push("$HOME/.cargo/bin");
+        env_additions.push("/usr/local/cargo/bin");
     }
     if docker_config.presets.iter().any(|p| p == "go") {
         env_additions.push("/usr/local/go/bin");
@@ -324,7 +330,7 @@ RUN chmod +x /tmp/custom-setup.sh && /tmp/custom-setup.sh
     // Install fresher CLI if rust preset is available
     if docker_config.presets.iter().any(|p| p == "rust") {
         dockerfile.push_str("# Install fresher CLI from GitHub\n");
-        dockerfile.push_str("RUN . $HOME/.cargo/env && cargo install --git https://github.com/shanewwarren/fresher.git fresher\n\n");
+        dockerfile.push_str("RUN /usr/local/cargo/bin/cargo install --git https://github.com/shanewwarren/fresher.git fresher\n\n");
     }
 
     dockerfile.push_str("USER node\n");
