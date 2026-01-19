@@ -321,6 +321,12 @@ RUN chmod +x /tmp/custom-setup.sh && /tmp/custom-setup.sh
         ));
     }
 
+    // Install fresher CLI if rust preset is available
+    if docker_config.presets.iter().any(|p| p == "rust") {
+        dockerfile.push_str("# Install fresher CLI\n");
+        dockerfile.push_str("RUN . $HOME/.cargo/env && cargo install fresher\n\n");
+    }
+
     dockerfile.push_str("USER node\n");
 
     Ok(dockerfile)
