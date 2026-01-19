@@ -8,7 +8,7 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
 
 ## Current Status
 
-**Fresher v2.2** - Rust rewrite core is feature-complete. Next: hierarchical implementation plans.
+**Fresher v2.3** - Hierarchical implementation plans complete. All major features implemented.
 
 | Category | Status | Tests |
 |----------|--------|-------|
@@ -16,13 +16,24 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
 | Docker Isolation | ✅ Complete | - |
 | Docker UX | ✅ Complete | - |
 | Local Dev & Testing | ✅ Complete | - |
-| Hierarchical Plans | ⏳ Planned | Priority 15 |
-| Unit Tests | ✅ Complete | 82 |
+| Hierarchical Plans | ✅ Complete | Priority 15 |
+| Unit Tests | ✅ Complete | 106 |
 | Integration Tests | ✅ Complete | 63 |
 | Docker E2E Tests | ✅ Complete | 8 (ignored) |
-| **Total Tests** | | **153** |
+| **Total Tests** | | **177** |
 
-### Recent Changes (Priority 14)
+### Recent Changes (Priority 15)
+
+Implemented hierarchical implementation plans for context-efficient build loops:
+
+- **New module:** `src/impl_plan.rs` with types and functions for hierarchical plans
+- **Updated prompts:** Planning and building modes now support `impl/` directory structure
+- **New command:** `fresher migrate-plan` to migrate legacy single-file plans
+- **Enhanced verify:** Detects hierarchical plans and shows per-feature progress bars
+- **Configuration:** New options `impl_dir`, `archive_completed`, `single_file_threshold`
+- **Tests:** 15 new unit tests for impl_plan, 6 new verify tests, 4 new config tests
+
+### Previous Changes (Priority 14)
 
 Implemented local binary mounting for faster Docker iteration and comprehensive testing:
 
@@ -683,7 +694,7 @@ Local binary mounting for faster Docker iteration and comprehensive Docker testi
 
 ---
 
-## Priority 15: Hierarchical Implementation Plans ⏳ **PLANNED**
+## Priority 15: Hierarchical Implementation Plans ✅ **COMPLETE**
 
 Implement hierarchical `impl/` directory structure for context-efficient build loops (refs: specs/impl-structure.md).
 
@@ -693,9 +704,9 @@ Implement hierarchical `impl/` directory structure for context-efficient build l
 - **Clean archival** - Auto-move completed features to `.archive/`
 - **Backward compatibility** - Support gradual migration from single-file plans
 
-### Phase 1: Pending Task Detection (Low Complexity)
+### Phase 1: Pending Task Detection (Low Complexity) ✅
 
-- [ ] Update `has_pending_tasks()` to check `impl/` structure (refs: specs/impl-structure.md §5.4)
+- [x] Update `has_pending_tasks()` to check `impl/` structure (refs: specs/impl-structure.md §5.4)
   - Dependencies: None
   - File: `src/verify.rs`
   - Implementation:
@@ -704,9 +715,9 @@ Implement hierarchical `impl/` directory structure for context-efficient build l
     - Also check cross-cutting tasks in `impl/README.md`
     - Fall back to legacy `IMPLEMENTATION_PLAN.md` check if no `impl/` dir
 
-### Phase 2: Planning Mode Hierarchical Output (Medium Complexity)
+### Phase 2: Planning Mode Hierarchical Output (Medium Complexity) ✅
 
-- [ ] Add hierarchical plan generation to planning mode (refs: specs/impl-structure.md §5.1, §8.1)
+- [x] Add hierarchical plan generation to planning mode (refs: specs/impl-structure.md §5.1, §8.1)
   - Dependencies: Phase 1
   - File: `src/templates.rs`, `src/commands/plan.rs`
   - Implementation:
@@ -715,9 +726,9 @@ Implement hierarchical `impl/` directory structure for context-efficient build l
     - Create `impl/{feature}.md` for each spec with gaps
     - Group tasks by spec alignment
 
-### Phase 3: Building Mode Focus Selection (Medium Complexity)
+### Phase 3: Building Mode Focus Selection (Medium Complexity) ✅
 
-- [ ] Update building mode prompts for hierarchical plans (refs: specs/impl-structure.md §5.2, §8.2)
+- [x] Update building mode prompts for hierarchical plans (refs: specs/impl-structure.md §5.2, §8.2)
   - Dependencies: Phase 2
   - File: `src/templates.rs`, `src/commands/build.rs`
   - Implementation:
@@ -726,27 +737,27 @@ Implement hierarchical `impl/` directory structure for context-efficient build l
     - Read only the active feature file
     - Update task status in feature file after completion
 
-- [ ] Implement `select_next_focus()` function (refs: specs/impl-structure.md §5.5)
+- [x] Implement `select_next_focus()` function (refs: specs/impl-structure.md §5.5)
   - Dependencies: Phase 2
-  - File: `src/verify.rs` or new `src/impl_plan.rs`
+  - File: `src/impl_plan.rs`
   - Implementation:
     - Priority: features with in-progress tasks first
     - Then features with pending tasks (lowest count for quick wins)
     - Finally cross-cutting tasks in README
 
-### Phase 4: Auto-Archival (Low Complexity)
+### Phase 4: Auto-Archival (Low Complexity) ✅
 
-- [ ] Implement auto-archival when feature completes (refs: specs/impl-structure.md §5.3)
+- [x] Implement auto-archival when feature completes (refs: specs/impl-structure.md §5.3)
   - Dependencies: Phase 3
   - File: `src/impl_plan.rs`
   - Implementation:
-    - After task completion, check if all tasks in feature are `[x]`
-    - If complete, move file to `impl/.archive/`
-    - Update `impl/README.md` status and select next focus
+    - `archive_feature()` function to move completed files to `.archive/`
+    - Helper functions for listing feature and archived files
+    - Full ImplIndex type for parsing hierarchical plans
 
-### Phase 5: Verify Command Updates (Medium Complexity)
+### Phase 5: Verify Command Updates (Medium Complexity) ✅
 
-- [ ] Update `fresher verify` for hierarchical plans (refs: specs/impl-structure.md §9)
+- [x] Update `fresher verify` for hierarchical plans (refs: specs/impl-structure.md §9)
   - Dependencies: Phase 2
   - File: `src/verify.rs`, `src/commands/verify.rs`
   - Implementation:
@@ -755,35 +766,44 @@ Implement hierarchical `impl/` directory structure for context-efficient build l
     - Include cross-cutting tasks from README
     - Display per-feature progress bars in terminal output
 
-### Phase 6: Migration Support (Medium Complexity)
+### Phase 6: Migration Support (Medium Complexity) ✅
 
-- [ ] Add automatic migration from single-file plan (refs: specs/impl-structure.md §7.1)
+- [x] Add migration analysis and execution (refs: specs/impl-structure.md §7.1)
   - Dependencies: Phase 2
   - File: `src/impl_plan.rs`
   - Implementation:
-    - On `fresher build`, detect legacy `IMPLEMENTATION_PLAN.md` without `impl/`
-    - If task count >= threshold, offer to migrate
+    - `analyze_migration()` to preview migration
+    - `migrate_plan()` to execute migration
     - Group tasks by spec reference
     - Create hierarchical structure
     - Backup legacy file as `.backup`
 
-- [ ] Add `fresher migrate-plan` command (refs: specs/impl-structure.md §7.2)
-  - Dependencies: Automatic migration
-  - File: `src/commands/mod.rs`, new `src/commands/migrate.rs`
+- [x] Add `fresher migrate-plan` command (refs: specs/impl-structure.md §7.2)
+  - Dependencies: Migration functions
+  - File: `src/commands/migrate.rs`, `src/cli.rs`
   - Implementation:
     - Explicit migration command
     - `--force` flag to migrate even small plans
     - `--dry-run` to preview structure
 
-### Phase 7: Configuration (Low Complexity)
+### Phase 7: Configuration (Low Complexity) ✅
 
-- [ ] Add hierarchical plan configuration options (refs: specs/impl-structure.md §6)
+- [x] Add hierarchical plan configuration options (refs: specs/impl-structure.md §6)
   - Dependencies: None
   - File: `src/config.rs`
   - Implementation:
     - `paths.impl_dir` - Implementation plan directory (default: `impl`)
     - `fresher.archive_completed` - Auto-archive completed features (default: `true`)
     - `fresher.single_file_threshold` - Task count below which single file is used (default: `8`)
+
+### Implementation Summary
+
+- **New module:** `src/impl_plan.rs` - Core types and functions for hierarchical plans
+- **Updated templates:** Planning and building mode prompts now support hierarchical structure
+- **New command:** `fresher migrate-plan` for explicit migration
+- **Updated verify:** Detects and reports on hierarchical plans with per-feature progress
+- **Config options:** `impl_dir`, `archive_completed`, `single_file_threshold`
+- **Tests:** 15 new unit tests for impl_plan module, 6 new tests for verify hierarchical detection
 
 ---
 

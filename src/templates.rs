@@ -10,7 +10,7 @@ You are analyzing specifications against the current codebase to create an imple
 1. **Read all specifications** in `specs/` directory
 2. **Explore the codebase** to understand what exists
 3. **Identify gaps** between specs and implementation
-4. **Create or update** `IMPLEMENTATION_PLAN.md` with prioritized tasks
+4. **Create implementation plan** using hierarchical `impl/` structure (recommended) or single-file `IMPLEMENTATION_PLAN.md`
 
 ## Constraints
 
@@ -36,8 +36,102 @@ For each requirement in specs, determine:
 - [ ] Partially implemented
 - [ ] Fully implemented
 
-### Step 4: Create Plan
-Write `IMPLEMENTATION_PLAN.md` with:
+### Step 4: Create Hierarchical Plan
+
+For projects with 8+ tasks, create a hierarchical `impl/` directory structure:
+
+```
+impl/
+├── README.md              # Index: status table, current focus, cross-cutting tasks
+├── {feature-a}.md         # Tasks for feature A (aligned with specs/feature-a.md)
+├── {feature-b}.md         # Tasks for feature B
+└── .archive/              # Completed feature files (empty initially)
+```
+
+#### impl/README.md Format
+
+```markdown
+# Implementation Plan
+
+**Generated:** {timestamp}
+**Based on:** specs/*.md
+**Project:** {project_name}
+
+---
+
+## Status Overview
+
+| Feature | Status | Progress | Spec |
+|---------|--------|----------|------|
+| [feature-a](./feature-a.md) | ⏳ Pending | 0/5 | [spec](../specs/feature-a.md) |
+| [feature-b](./feature-b.md) | ⏳ Pending | 0/3 | [spec](../specs/feature-b.md) |
+
+---
+
+## Current Focus
+
+**Active:** [feature-a.md](./feature-a.md)
+
+Next task: P1.1 - {first task description}
+
+---
+
+## Cross-Cutting Tasks
+
+Tasks not tied to a specific feature:
+
+- [ ] P99.1 - Update README documentation
+- [ ] P99.2 - Add integration tests
+
+---
+
+## Archived Features
+
+Completed features moved to `.archive/`:
+
+(none yet)
+```
+
+#### impl/{feature}.md Format
+
+```markdown
+# {Feature Name} Implementation
+
+**Spec:** [specs/{feature}.md](../specs/{feature}.md)
+**Status:** Pending
+**Last Updated:** {timestamp}
+
+---
+
+## Dependencies
+
+- ⏳ {other-feature} (pending)
+- or ✅ None blocking
+
+---
+
+## Tasks
+
+### Priority 1: Core Implementation
+
+#### P1.1: {Task Title}
+
+- [ ] {Task description}
+  - **File:** `src/path/to/file.ts`
+  - **Refs:** specs/{feature}.md §3.1
+  - **Complexity:** low/medium/high
+
+#### P1.2: {Next Task Title}
+
+- [ ] {Task description}
+  - **File:** `src/path/to/other.ts`
+  - **Dependencies:** P1.1
+  - **Complexity:** medium
+```
+
+### Alternative: Single-File Plan
+
+For smaller projects (<8 tasks), create `IMPLEMENTATION_PLAN.md`:
 
 ```markdown
 # Implementation Plan
@@ -51,11 +145,6 @@ Based on: specs/*.md
   - Complexity: low/medium/high
 
 ## Priority 2: Core Features
-- [ ] Task description (refs: specs/bar.md)
-  - Dependencies: Priority 1 tasks
-  - Complexity: medium
-
-## Priority 3: Enhancements
 ...
 ```
 
@@ -64,7 +153,8 @@ Based on: specs/*.md
 Your final output should confirm:
 1. Which specs were analyzed
 2. How many gaps were identified
-3. That IMPLEMENTATION_PLAN.md was created/updated
+3. Whether hierarchical (`impl/`) or single-file plan was created
+4. The total task count by feature
 
 ## Important
 
@@ -72,6 +162,7 @@ Your final output should confirm:
 - Always verify against actual code before concluding something is implemented
 - Tasks should be small enough to complete in one building iteration
 - Include spec references for traceability
+- Use hierarchical structure for better context efficiency in large projects
 "#;
 
 /// Building mode prompt template
@@ -81,8 +172,8 @@ You are implementing tasks from the existing implementation plan.
 
 ## Your Task
 
-1. **Read** `IMPLEMENTATION_PLAN.md`
-2. **Select** the highest priority incomplete task
+1. **Detect plan structure** - Check if `impl/README.md` exists (hierarchical) or use `IMPLEMENTATION_PLAN.md` (legacy)
+2. **Read the plan** and identify the current focus/next task
 3. **Investigate** relevant code (don't assume not implemented)
 4. **Implement** the task completely
 5. **Validate** with tests and builds
@@ -95,12 +186,19 @@ You are implementing tasks from the existing implementation plan.
 - Must pass all validation before committing
 - Update AGENTS.md if you discover operational knowledge
 
-## Process
+## Process for Hierarchical Plans (impl/)
 
-### Step 1: Read Plan
-Open `IMPLEMENTATION_PLAN.md` and identify the first unchecked task (`- [ ]`).
+If `impl/README.md` exists, use this workflow:
 
-### Step 2: Investigate
+### Step 1: Read Plan Index
+Open `impl/README.md` and note:
+- Which feature is marked as "Current Focus"
+- Overall progress across features
+
+### Step 2: Read Active Feature
+Open the current focus file (e.g., `impl/feature-a.md`) and find the first `- [ ]` task.
+
+### Step 3: Investigate
 Before implementing, use subagents to:
 - Read the referenced spec for requirements
 - Search for existing related code
@@ -108,10 +206,10 @@ Before implementing, use subagents to:
 
 **CRITICAL**: Never assume something isn't implemented. Always check first.
 
-### Step 3: Implement
+### Step 4: Implement
 Write the code to complete the task. Follow patterns in AGENTS.md.
 
-### Step 4: Validate
+### Step 5: Validate
 Run the project's validation commands:
 - Tests: `{test_command from AGENTS.md}`
 - Build: `{build_command from AGENTS.md}`
@@ -122,13 +220,39 @@ If validation fails:
 - Re-run validation
 - Do not proceed until passing
 
-### Step 5: Update Plan
+### Step 6: Update Plan
+In the feature file (e.g., `impl/feature-a.md`):
+- Change `- [ ]` to `- [x]` for completed task
+- Update "Last Updated" timestamp
+
+If ALL tasks in the feature are now complete:
+1. Update feature status in `impl/README.md` to ✅ Complete
+2. Move the file to `impl/.archive/` (create directory if needed)
+3. Update "Current Focus" to the next pending feature
+4. The next feature with pending tasks becomes the new focus
+
+### Step 7: Commit
+Create a commit with:
+- Clear message describing the change
+- Reference to the spec if applicable
+
+## Process for Legacy Plans (IMPLEMENTATION_PLAN.md)
+
+If no `impl/` directory exists, use the single-file workflow:
+
+### Step 1: Read Plan
+Open `IMPLEMENTATION_PLAN.md` and identify the first unchecked task (`- [ ]`).
+
+### Step 2-5: Same as hierarchical
+(Investigate, Implement, Validate)
+
+### Step 6: Update Plan
 In `IMPLEMENTATION_PLAN.md`:
 - Change `- [ ]` to `- [x]` for completed task
 - Add notes about any discoveries or issues
 - Add new tasks if scope expanded
 
-### Step 6: Commit
+### Step 7: Commit
 Create a commit with:
 - Clear message describing the change
 - Reference to the spec if applicable
@@ -136,15 +260,18 @@ Create a commit with:
 ## Output Format
 
 Your final output should confirm:
-1. Which task was implemented
-2. Validation results (pass/fail)
-3. Commit SHA (if successful)
+1. Plan type detected (hierarchical or legacy)
+2. Which task was implemented
+3. Validation results (pass/fail)
+4. Commit SHA (if successful)
+5. Whether feature was archived (for hierarchical)
 
 ## Important
 
 - Quality over speed - one well-implemented task is better than multiple broken ones
 - If stuck on a task, document blockers and move to next
 - Update AGENTS.md with any commands, patterns, or knowledge discovered
+- For hierarchical plans: Keep `impl/README.md` Current Focus updated
 "#;
 
 /// Default AGENTS.md template

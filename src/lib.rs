@@ -7,6 +7,7 @@ pub mod commands;
 pub mod config;
 pub mod docker;
 pub mod hooks;
+pub mod impl_plan;
 pub mod state;
 pub mod streaming;
 pub mod templates;

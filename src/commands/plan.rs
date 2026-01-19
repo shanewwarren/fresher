@@ -11,7 +11,7 @@ use crate::hooks;
 use crate::state::{count_commits_since, get_current_sha, FinishType, State};
 use crate::streaming::{process_stream, StreamHandler};
 use crate::templates;
-use crate::verify::has_pending_tasks;
+use crate::verify::has_pending_tasks_with_impl_dir;
 
 /// Run the plan command - planning mode loop
 pub async fn run(max_iterations: Option<u32>) -> Result<()> {
@@ -138,7 +138,12 @@ pub async fn run(max_iterations: Option<u32>) -> Result<()> {
         if config.fresher.smart_termination {
             // Check if plan is complete (no pending tasks)
             let plan_path = Path::new("IMPLEMENTATION_PLAN.md");
-            if plan_path.exists() && !has_pending_tasks(plan_path) {
+            let impl_dir = Path::new(&config.paths.impl_dir);
+            let impl_readme = impl_dir.join("README.md");
+            // Check both hierarchical and legacy plan locations
+            if (impl_readme.exists() || plan_path.exists())
+                && !has_pending_tasks_with_impl_dir(plan_path, impl_dir)
+            {
                 state.set_finish(FinishType::Complete);
                 println!("\n{}", "All tasks complete!".green());
                 break;

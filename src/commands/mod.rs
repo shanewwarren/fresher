@@ -1,6 +1,7 @@
 pub mod build;
 pub mod docker;
 pub mod init;
+pub mod migrate;
 pub mod plan;
 pub mod upgrade;
 pub mod verify;

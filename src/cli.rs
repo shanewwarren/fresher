@@ -62,6 +62,18 @@ pub enum Commands {
         #[command(subcommand)]
         command: DockerCommands,
     },
+
+    /// Migrate single-file plan to hierarchical impl/ structure
+    #[command(name = "migrate-plan")]
+    MigratePlan {
+        /// Force migration even if task count is below threshold
+        #[arg(short, long)]
+        force: bool,
+
+        /// Preview migration without making changes
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[derive(Subcommand)]

@@ -18,5 +18,8 @@ async fn main() -> Result<()> {
             DockerCommands::Shell => commands::docker::run_shell().await,
             DockerCommands::Build => commands::docker::run_build().await,
         },
+        Commands::MigratePlan { force, dry_run } => {
+            commands::migrate::run(force, dry_run).await
+        }
     }
 }

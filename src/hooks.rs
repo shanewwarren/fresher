@@ -166,6 +166,8 @@ mod tests {
                 dangerous_permissions: true,
                 max_turns: 50,
                 model: "sonnet".to_string(),
+                archive_completed: true,
+                single_file_threshold: 8,
             },
             commands: crate::config::CommandsConfig {
                 test: String::new(),
@@ -176,6 +178,7 @@ mod tests {
                 log_dir: ".fresher/logs".to_string(),
                 spec_dir: "specs".to_string(),
                 src_dir: "src".to_string(),
+                impl_dir: "impl".to_string(),
             },
             hooks: crate::config::HooksConfig {
                 enabled: hooks_enabled,

@@ -11,7 +11,7 @@ use crate::hooks;
 use crate::state::{count_commits_since, get_current_sha, FinishType, State};
 use crate::streaming::{process_stream, StreamHandler};
 use crate::templates;
-use crate::verify::has_pending_tasks;
+use crate::verify::has_pending_tasks_with_impl_dir;
 
 /// Run the build command - building mode loop
 pub async fn run(max_iterations: Option<u32>) -> Result<()> {
@@ -23,11 +23,14 @@ pub async fn run(max_iterations: Option<u32>) -> Result<()> {
         );
     }
 
-    // Check for implementation plan
+    // Check for implementation plan (hierarchical or legacy)
+    let impl_readme = Path::new("impl/README.md");
     let plan_path = Path::new("IMPLEMENTATION_PLAN.md");
-    if !plan_path.exists() {
+    if !impl_readme.exists() && !plan_path.exists() {
         bail!(
-            "IMPLEMENTATION_PLAN.md not found. Run {} first to create a plan.",
+            "No implementation plan found.\n\
+             Expected either: impl/README.md (hierarchical) or IMPLEMENTATION_PLAN.md (legacy)\n\
+             Run {} first to create a plan.",
             "fresher plan".cyan()
         );
     }
@@ -99,8 +102,9 @@ pub async fn run(max_iterations: Option<u32>) -> Result<()> {
             break;
         }
 
-        // Check if there are pending tasks
-        if !has_pending_tasks(plan_path) {
+        // Check if there are pending tasks (hierarchical or legacy)
+        let impl_dir = Path::new(&config.paths.impl_dir);
+        if !has_pending_tasks_with_impl_dir(plan_path, impl_dir) {
             state.set_finish(FinishType::Complete);
             println!("{}", "All tasks complete!".green());
             break;

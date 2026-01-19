@@ -21,6 +21,20 @@ pub struct FresherConfig {
     pub dangerous_permissions: bool,
     pub max_turns: u32,
     pub model: String,
+    /// Auto-archive completed features in hierarchical plans
+    #[serde(default = "default_archive_completed")]
+    pub archive_completed: bool,
+    /// Task count threshold below which single-file plans are preferred
+    #[serde(default = "default_single_file_threshold")]
+    pub single_file_threshold: u32,
+}
+
+fn default_archive_completed() -> bool {
+    true
+}
+
+fn default_single_file_threshold() -> u32 {
+    8
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +49,13 @@ pub struct PathsConfig {
     pub log_dir: String,
     pub spec_dir: String,
     pub src_dir: String,
+    /// Implementation plan directory for hierarchical plans
+    #[serde(default = "default_impl_dir")]
+    pub impl_dir: String,
+}
+
+fn default_impl_dir() -> String {
+    "impl".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +91,8 @@ impl Default for Config {
                 dangerous_permissions: true,
                 max_turns: 50,
                 model: "sonnet".to_string(),
+                archive_completed: true,
+                single_file_threshold: 8,
             },
             commands: CommandsConfig {
                 test: String::new(),
@@ -80,6 +103,7 @@ impl Default for Config {
                 log_dir: ".fresher/logs".to_string(),
                 spec_dir: "specs".to_string(),
                 src_dir: "src".to_string(),
+                impl_dir: "impl".to_string(),
             },
             hooks: HooksConfig {
                 enabled: true,
@@ -148,6 +172,14 @@ impl Config {
         if let Ok(val) = env::var("FRESHER_MODEL") {
             self.fresher.model = val;
         }
+        if let Ok(val) = env::var("FRESHER_ARCHIVE_COMPLETED") {
+            self.fresher.archive_completed = val.to_lowercase() == "true";
+        }
+        if let Ok(val) = env::var("FRESHER_SINGLE_FILE_THRESHOLD") {
+            if let Ok(n) = val.parse() {
+                self.fresher.single_file_threshold = n;
+            }
+        }
 
         // Commands
         if let Ok(val) = env::var("FRESHER_TEST_CMD") {
@@ -169,6 +201,9 @@ impl Config {
         }
         if let Ok(val) = env::var("FRESHER_SRC_DIR") {
             self.paths.src_dir = val;
+        }
+        if let Ok(val) = env::var("FRESHER_IMPL_DIR") {
+            self.paths.impl_dir = val;
         }
 
         // Hooks
@@ -334,6 +369,8 @@ mod tests {
         assert!(config.fresher.dangerous_permissions);
         assert_eq!(config.fresher.max_turns, 50);
         assert_eq!(config.fresher.model, "sonnet");
+        assert!(config.fresher.archive_completed);
+        assert_eq!(config.fresher.single_file_threshold, 8);
 
         assert!(config.commands.test.is_empty());
         assert!(config.commands.build.is_empty());
@@ -342,6 +379,7 @@ mod tests {
         assert_eq!(config.paths.log_dir, ".fresher/logs");
         assert_eq!(config.paths.spec_dir, "specs");
         assert_eq!(config.paths.src_dir, "src");
+        assert_eq!(config.paths.impl_dir, "impl");
 
         assert!(config.hooks.enabled);
         assert_eq!(config.hooks.timeout, 30);
@@ -576,5 +614,44 @@ mod tests {
         assert_eq!(parsed.fresher.mode, config.fresher.mode);
         assert_eq!(parsed.fresher.max_iterations, config.fresher.max_iterations);
         assert_eq!(parsed.hooks.timeout, config.hooks.timeout);
+        assert_eq!(parsed.fresher.archive_completed, config.fresher.archive_completed);
+        assert_eq!(parsed.fresher.single_file_threshold, config.fresher.single_file_threshold);
+        assert_eq!(parsed.paths.impl_dir, config.paths.impl_dir);
+    }
+
+    #[test]
+    fn test_env_override_archive_completed() {
+        let mut config = Config::default();
+
+        env::set_var("FRESHER_ARCHIVE_COMPLETED", "false");
+        config.apply_env_overrides();
+
+        assert!(!config.fresher.archive_completed);
+
+        env::remove_var("FRESHER_ARCHIVE_COMPLETED");
+    }
+
+    #[test]
+    fn test_env_override_single_file_threshold() {
+        let mut config = Config::default();
+
+        env::set_var("FRESHER_SINGLE_FILE_THRESHOLD", "15");
+        config.apply_env_overrides();
+
+        assert_eq!(config.fresher.single_file_threshold, 15);
+
+        env::remove_var("FRESHER_SINGLE_FILE_THRESHOLD");
+    }
+
+    #[test]
+    fn test_env_override_impl_dir() {
+        let mut config = Config::default();
+
+        env::set_var("FRESHER_IMPL_DIR", "implementation");
+        config.apply_env_overrides();
+
+        assert_eq!(config.paths.impl_dir, "implementation");
+
+        env::remove_var("FRESHER_IMPL_DIR");
     }
 }

@@ -167,10 +167,72 @@ pub fn count_tasks(tasks: &[Task]) -> (usize, usize, usize, usize) {
 }
 
 /// Check if there are pending tasks
-/// Supports two formats:
-/// 1. Standard checkboxes: `- [ ]` (pending) vs `- [x]` (complete)
-/// 2. Section headers: `### 1.1 Task Name` (pending) vs `### 1.1 Task Name ✅` (complete)
+/// Supports three formats:
+/// 1. Hierarchical impl/ directory with feature files
+/// 2. Standard checkboxes: `- [ ]` (pending) vs `- [x]` (complete)
+/// 3. Section headers: `### 1.1 Task Name` (pending) vs `### 1.1 Task Name ✅` (complete)
+///
+/// When `impl/README.md` exists, uses hierarchical detection.
+/// Otherwise falls back to legacy single-file detection.
 pub fn has_pending_tasks(plan_path: &Path) -> bool {
+    has_pending_tasks_with_impl_dir(plan_path, Path::new("impl"))
+}
+
+/// Check for pending tasks with configurable impl_dir
+pub fn has_pending_tasks_with_impl_dir(plan_path: &Path, impl_dir: &Path) -> bool {
+    // Check for hierarchical impl/ structure
+    let impl_readme = impl_dir.join("README.md");
+
+    if impl_readme.exists() {
+        return has_pending_tasks_hierarchical(impl_dir);
+    }
+
+    // Fall back to legacy single-file check
+    has_pending_tasks_legacy(plan_path)
+}
+
+/// Check for pending tasks in hierarchical impl/ structure
+fn has_pending_tasks_hierarchical(impl_dir: &Path) -> bool {
+    let checkbox_re = Regex::new(r"^\s*-\s*\[\s\]").unwrap();
+
+    // Check each non-archived feature file for pending tasks
+    if let Ok(entries) = fs::read_dir(impl_dir) {
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+
+            // Skip README, .archive directory, and non-markdown files
+            if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                if filename == "README.md" || filename == ".archive" {
+                    continue;
+                }
+            }
+
+            if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                continue;
+            }
+
+            // Check this feature file for pending checkboxes
+            if let Ok(content) = fs::read_to_string(&path) {
+                if content.lines().any(|line| checkbox_re.is_match(line)) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Also check cross-cutting tasks in impl/README.md
+    let readme_path = impl_dir.join("README.md");
+    if let Ok(content) = fs::read_to_string(readme_path) {
+        if content.lines().any(|line| checkbox_re.is_match(line)) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Legacy check for pending tasks in a single plan file
+fn has_pending_tasks_legacy(plan_path: &Path) -> bool {
     if !plan_path.exists() {
         return false;
     }
@@ -714,5 +776,140 @@ Line 4
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].line_number, 3);
         assert_eq!(tasks[1].line_number, 5);
+    }
+
+    // Hierarchical plan tests
+
+    fn create_impl_structure(dir: &TempDir) -> std::path::PathBuf {
+        let impl_dir = dir.path().join("impl");
+        std::fs::create_dir_all(&impl_dir).unwrap();
+        std::fs::create_dir_all(impl_dir.join(".archive")).unwrap();
+        impl_dir
+    }
+
+    fn create_impl_readme(dir: &TempDir, content: &str) {
+        let impl_dir = dir.path().join("impl");
+        std::fs::create_dir_all(&impl_dir).unwrap();
+        let path = impl_dir.join("README.md");
+        std::fs::write(path, content).unwrap();
+    }
+
+    fn create_impl_feature(dir: &TempDir, name: &str, content: &str) {
+        let impl_dir = dir.path().join("impl");
+        std::fs::create_dir_all(&impl_dir).unwrap();
+        let path = impl_dir.join(name);
+        std::fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn test_has_pending_tasks_hierarchical_with_pending() {
+        let dir = TempDir::new().unwrap();
+        create_impl_structure(&dir);
+        create_impl_readme(&dir, "# Implementation Plan\n\n## Status\n");
+        create_impl_feature(&dir, "auth.md", "# Auth\n\n- [ ] Implement login\n- [x] Add logout\n");
+
+        // Change to temp dir to test
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+
+        let result = has_pending_tasks(Path::new("IMPLEMENTATION_PLAN.md"));
+
+        std::env::set_current_dir(original_dir).unwrap();
+
+        assert!(result, "Should detect pending tasks in hierarchical structure");
+    }
+
+    #[test]
+    fn test_has_pending_tasks_hierarchical_all_complete() {
+        let dir = TempDir::new().unwrap();
+        create_impl_structure(&dir);
+        create_impl_readme(&dir, "# Implementation Plan\n\n## Status\n");
+        create_impl_feature(&dir, "auth.md", "# Auth\n\n- [x] Implement login\n- [x] Add logout\n");
+
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+
+        let result = has_pending_tasks(Path::new("IMPLEMENTATION_PLAN.md"));
+
+        std::env::set_current_dir(original_dir).unwrap();
+
+        assert!(!result, "Should not detect pending tasks when all complete");
+    }
+
+    #[test]
+    fn test_has_pending_tasks_hierarchical_cross_cutting() {
+        let dir = TempDir::new().unwrap();
+        create_impl_structure(&dir);
+        create_impl_readme(&dir, "# Implementation Plan\n\n## Cross-Cutting\n\n- [ ] Global task\n");
+        create_impl_feature(&dir, "auth.md", "# Auth\n\n- [x] All done\n");
+
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+
+        let result = has_pending_tasks(Path::new("IMPLEMENTATION_PLAN.md"));
+
+        std::env::set_current_dir(original_dir).unwrap();
+
+        assert!(result, "Should detect pending cross-cutting tasks in README");
+    }
+
+    #[test]
+    fn test_has_pending_tasks_hierarchical_ignores_archive() {
+        let dir = TempDir::new().unwrap();
+        create_impl_structure(&dir);
+        create_impl_readme(&dir, "# Implementation Plan\n");
+        create_impl_feature(&dir, "done.md", "# Done\n\n- [x] All complete\n");
+
+        // Create archived file with pending task
+        let archive_dir = dir.path().join("impl").join(".archive");
+        std::fs::create_dir_all(&archive_dir).unwrap();
+        std::fs::write(archive_dir.join("old.md"), "- [ ] Old pending task").unwrap();
+
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+
+        let result = has_pending_tasks(Path::new("IMPLEMENTATION_PLAN.md"));
+
+        std::env::set_current_dir(original_dir).unwrap();
+
+        assert!(!result, "Should ignore .archive directory");
+    }
+
+    #[test]
+    fn test_has_pending_tasks_fallback_to_legacy() {
+        let dir = TempDir::new().unwrap();
+        // No impl/ directory, just legacy file
+        let plan_path = dir.path().join("IMPLEMENTATION_PLAN.md");
+        std::fs::write(&plan_path, "- [ ] Legacy pending task").unwrap();
+
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+
+        let result = has_pending_tasks(&plan_path);
+
+        std::env::set_current_dir(original_dir).unwrap();
+
+        assert!(result, "Should fall back to legacy when no impl/ exists");
+    }
+
+    #[test]
+    fn test_has_pending_tasks_hierarchical_ignores_non_md() {
+        let dir = TempDir::new().unwrap();
+        create_impl_structure(&dir);
+        create_impl_readme(&dir, "# Implementation Plan\n");
+        create_impl_feature(&dir, "done.md", "# Done\n\n- [x] All complete\n");
+
+        // Create non-md file with pending task syntax
+        let impl_dir = dir.path().join("impl");
+        std::fs::write(impl_dir.join("notes.txt"), "- [ ] Not a real task").unwrap();
+
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+
+        let result = has_pending_tasks(Path::new("IMPLEMENTATION_PLAN.md"));
+
+        std::env::set_current_dir(original_dir).unwrap();
+
+        assert!(!result, "Should ignore non-markdown files");
     }
 }
