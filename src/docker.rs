@@ -381,8 +381,8 @@ services:
     # Volume mounts
     volumes:
       - ${{PWD}}:/workspace
-      # Mount Claude credentials (OAuth tokens)
-      - ${{HOME}}/.claude:/home/node/.claude:ro
+      # Mount Claude config directory (needs write access for debug logs)
+      - ${{HOME}}/.claude:/home/node/.claude
 
     # Environment
     environment:
