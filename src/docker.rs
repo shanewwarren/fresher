@@ -381,6 +381,9 @@ services:
 
     # Working directory
     working_dir: /workspace
+
+    # Clear default entrypoint (node image defaults to 'node')
+    entrypoint: ""
 "#,
         image_tag = image_tag,
         memory = config.memory,
