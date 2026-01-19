@@ -1,14 +1,14 @@
 # Implementation Plan
 
 Generated: 2025-01-17
-Last Updated: 2026-01-18
-Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-executor.md, specs/prompt-templates.md, specs/docker-isolation.md, specs/docker-ux.md, specs/plan-verification.md, specs/self-testing.md
+Last Updated: 2026-01-19
+Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-executor.md, specs/prompt-templates.md, specs/docker-isolation.md, specs/docker-ux.md, specs/plan-verification.md, specs/self-testing.md, specs/impl-structure.md
 
 ---
 
 ## Current Status
 
-**Fresher v2.1** - Rust rewrite is feature-complete. All planned features implemented.
+**Fresher v2.2** - Rust rewrite core is feature-complete. Next: hierarchical implementation plans.
 
 | Category | Status | Tests |
 |----------|--------|-------|
@@ -16,6 +16,7 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
 | Docker Isolation | ✅ Complete | - |
 | Docker UX | ✅ Complete | - |
 | Local Dev & Testing | ✅ Complete | - |
+| Hierarchical Plans | ⏳ Planned | Priority 15 |
 | Unit Tests | ✅ Complete | 82 |
 | Integration Tests | ✅ Complete | 63 |
 | Docker E2E Tests | ✅ Complete | 8 (ignored) |
@@ -679,6 +680,110 @@ Local binary mounting for faster Docker iteration and comprehensive Docker testi
     - Add `docker-e2e` job that runs on ubuntu-latest
     - Build fresher with `cargo build --release`
     - Run `cargo test --test docker_e2e -- --ignored`
+
+---
+
+## Priority 15: Hierarchical Implementation Plans ⏳ **PLANNED**
+
+Implement hierarchical `impl/` directory structure for context-efficient build loops (refs: specs/impl-structure.md).
+
+### Goals
+- **Context efficiency** - Reduce per-iteration context from ~300 lines to ~50-80 lines
+- **Spec alignment** - Mirror `specs/` structure with `impl/{feature}.md` files
+- **Clean archival** - Auto-move completed features to `.archive/`
+- **Backward compatibility** - Support gradual migration from single-file plans
+
+### Phase 1: Pending Task Detection (Low Complexity)
+
+- [ ] Update `has_pending_tasks()` to check `impl/` structure (refs: specs/impl-structure.md §5.4)
+  - Dependencies: None
+  - File: `src/verify.rs`
+  - Implementation:
+    - Check if `impl/README.md` exists
+    - If yes, scan all feature files in `impl/` for `- [ ]` checkboxes
+    - Also check cross-cutting tasks in `impl/README.md`
+    - Fall back to legacy `IMPLEMENTATION_PLAN.md` check if no `impl/` dir
+
+### Phase 2: Planning Mode Hierarchical Output (Medium Complexity)
+
+- [ ] Add hierarchical plan generation to planning mode (refs: specs/impl-structure.md §5.1, §8.1)
+  - Dependencies: Phase 1
+  - File: `src/templates.rs`, `src/commands/plan.rs`
+  - Implementation:
+    - Update `PROMPT_PLANNING` template to instruct agent to create `impl/` structure
+    - Create `impl/README.md` index with status table, current focus, cross-cutting tasks
+    - Create `impl/{feature}.md` for each spec with gaps
+    - Group tasks by spec alignment
+
+### Phase 3: Building Mode Focus Selection (Medium Complexity)
+
+- [ ] Update building mode prompts for hierarchical plans (refs: specs/impl-structure.md §5.2, §8.2)
+  - Dependencies: Phase 2
+  - File: `src/templates.rs`, `src/commands/build.rs`
+  - Implementation:
+    - Update `PROMPT_BUILDING` template to read `impl/README.md` first
+    - Extract "Current Focus" section to identify active feature
+    - Read only the active feature file
+    - Update task status in feature file after completion
+
+- [ ] Implement `select_next_focus()` function (refs: specs/impl-structure.md §5.5)
+  - Dependencies: Phase 2
+  - File: `src/verify.rs` or new `src/impl_plan.rs`
+  - Implementation:
+    - Priority: features with in-progress tasks first
+    - Then features with pending tasks (lowest count for quick wins)
+    - Finally cross-cutting tasks in README
+
+### Phase 4: Auto-Archival (Low Complexity)
+
+- [ ] Implement auto-archival when feature completes (refs: specs/impl-structure.md §5.3)
+  - Dependencies: Phase 3
+  - File: `src/impl_plan.rs`
+  - Implementation:
+    - After task completion, check if all tasks in feature are `[x]`
+    - If complete, move file to `impl/.archive/`
+    - Update `impl/README.md` status and select next focus
+
+### Phase 5: Verify Command Updates (Medium Complexity)
+
+- [ ] Update `fresher verify` for hierarchical plans (refs: specs/impl-structure.md §9)
+  - Dependencies: Phase 2
+  - File: `src/verify.rs`, `src/commands/verify.rs`
+  - Implementation:
+    - Detect `impl/README.md` vs legacy `IMPLEMENTATION_PLAN.md`
+    - Aggregate tasks from all feature files
+    - Include cross-cutting tasks from README
+    - Display per-feature progress bars in terminal output
+
+### Phase 6: Migration Support (Medium Complexity)
+
+- [ ] Add automatic migration from single-file plan (refs: specs/impl-structure.md §7.1)
+  - Dependencies: Phase 2
+  - File: `src/impl_plan.rs`
+  - Implementation:
+    - On `fresher build`, detect legacy `IMPLEMENTATION_PLAN.md` without `impl/`
+    - If task count >= threshold, offer to migrate
+    - Group tasks by spec reference
+    - Create hierarchical structure
+    - Backup legacy file as `.backup`
+
+- [ ] Add `fresher migrate-plan` command (refs: specs/impl-structure.md §7.2)
+  - Dependencies: Automatic migration
+  - File: `src/commands/mod.rs`, new `src/commands/migrate.rs`
+  - Implementation:
+    - Explicit migration command
+    - `--force` flag to migrate even small plans
+    - `--dry-run` to preview structure
+
+### Phase 7: Configuration (Low Complexity)
+
+- [ ] Add hierarchical plan configuration options (refs: specs/impl-structure.md §6)
+  - Dependencies: None
+  - File: `src/config.rs`
+  - Implementation:
+    - `paths.impl_dir` - Implementation plan directory (default: `impl`)
+    - `fresher.archive_completed` - Auto-archive completed features (default: `true`)
+    - `fresher.single_file_threshold` - Task count below which single file is used (default: `8`)
 
 ---
 
