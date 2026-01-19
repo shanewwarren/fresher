@@ -327,11 +327,8 @@ RUN chmod +x /tmp/custom-setup.sh && /tmp/custom-setup.sh
         ));
     }
 
-    // Install fresher CLI if rust preset is available
-    if docker_config.presets.iter().any(|p| p == "rust") {
-        dockerfile.push_str("# Install fresher CLI from GitHub\n");
-        dockerfile.push_str("RUN /usr/local/cargo/bin/cargo install --git https://github.com/shanewwarren/fresher.git fresher\n\n");
-    }
+    // Fresher binary is mounted at runtime via docker-compose volumes
+    // No need to install it in the image
 
     dockerfile.push_str("USER node\n");
 
@@ -355,6 +352,13 @@ pub fn get_image_tag(presets: &[String]) -> String {
 /// Uses the image tag based on configured presets.
 pub fn generate_docker_compose(config: &DockerConfig) -> String {
     let image_tag = get_image_tag(&config.presets);
+
+    // Determine fresher binary mount (for development)
+    let fresher_mount = if let Some(local_path) = &config.local_binary {
+        format!("      - {}:/usr/local/bin/fresher:ro\n", local_path)
+    } else {
+        String::new()
+    };
 
     format!(
         r#"# Fresher Docker Compose Configuration
@@ -383,7 +387,7 @@ services:
       - ${{PWD}}:/workspace
       # Mount Claude config directory (needs write access for debug logs)
       - ${{HOME}}/.claude:/home/node/.claude
-
+{fresher_mount}
     # Environment
     environment:
       - FRESHER_IN_DOCKER=true
@@ -400,6 +404,7 @@ services:
         image_tag = image_tag,
         memory = config.memory,
         cpus = config.cpus,
+        fresher_mount = fresher_mount,
     )
 }
 

@@ -15,11 +15,23 @@ Based on: specs/project-scaffold.md, specs/lifecycle-hooks.md, specs/loop-execut
 | Core Implementation | ✅ Complete | - |
 | Docker Isolation | ✅ Complete | - |
 | Docker UX | ✅ Complete | - |
-| Unit Tests | ✅ Complete | 77 |
-| Integration Tests | ✅ Complete | 46 |
-| **Total Tests** | | **123** |
+| Local Dev & Testing | ✅ Complete | - |
+| Unit Tests | ✅ Complete | 82 |
+| Integration Tests | ✅ Complete | 63 |
+| Docker E2E Tests | ✅ Complete | 8 (ignored) |
+| **Total Tests** | | **153** |
 
-### Recent Changes (Priority 13)
+### Recent Changes (Priority 14)
+
+Implemented local binary mounting for faster Docker iteration and comprehensive testing:
+
+- **Local binary mounting**: New `local_binary` config option mounts host fresher binary into container
+- **Removed GitHub install**: Dockerfile no longer installs fresher from GitHub (faster builds)
+- **Docker unit tests**: 17 new tests for Dockerfile/Compose generation in `tests/docker.rs`
+- **Docker E2E tests**: 8 new integration tests in `tests/docker_e2e.rs` (require Docker)
+- **CI/CD pipeline**: New `.github/workflows/test.yml` runs unit tests and Docker E2E tests
+
+### Previous Changes (Priority 13)
 
 Implemented seamless Docker UX where `fresher plan/build` auto-launches containers:
 
@@ -604,6 +616,72 @@ Seamless Docker experience where `fresher plan/build` auto-launches containers w
 
 ---
 
+## Priority 14: Local Development & Docker Testing ✅ **COMPLETE**
+
+Local binary mounting for faster Docker iteration and comprehensive Docker testing (refs: specs/docker-ux.md §10).
+
+- [x] Add `local_binary` field to DockerConfig (refs: specs/docker-ux.md §10.3)
+  - Dependencies: none
+  - Complexity: low
+  - File: `src/config.rs`
+  - Implementation:
+    - Add `local_binary: Option<String>` field to DockerConfig
+    - When set, mounts this binary instead of installing from GitHub
+    - Example: `local_binary = "./target/release/fresher"`
+
+- [x] Update Dockerfile generation for local binary support (refs: specs/docker-ux.md §10.4)
+  - Dependencies: `local_binary` field added
+  - Complexity: low
+  - File: `src/docker.rs`
+  - Implementation:
+    - Remove GitHub install logic from generated Dockerfile
+    - Fresher binary comes from mount at runtime, not build time
+    - Keeps image build fast (no Rust compilation)
+
+- [x] Update Docker Compose generation to mount local binary (refs: specs/docker-ux.md §10.4)
+  - Dependencies: `local_binary` field added
+  - Complexity: low
+  - File: `src/docker.rs`
+  - Implementation:
+    - Add volume mount for fresher binary when `local_binary` is set
+    - Mount as `{local_path}:/usr/local/bin/fresher:ro`
+    - Skip mount line when `local_binary` is None
+
+- [x] Add Docker unit tests (refs: specs/docker-ux.md §10.5)
+  - Dependencies: Implementation changes complete
+  - Complexity: medium
+  - File: `tests/docker.rs` (new)
+  - Tests:
+    - `test_generate_dockerfile_no_presets` - base image, no cargo install
+    - `test_generate_dockerfile_with_presets` - rust/bun preset commands
+    - `test_generate_compose_with_local_binary` - fresher mount present
+    - `test_generate_compose_without_local_binary` - no fresher mount
+    - `test_hash_presets_deterministic` - same presets = same hash
+    - `test_get_image_tag_no_presets` - returns fresher-base:latest
+    - `test_get_image_tag_with_presets` - returns fresher-dev:{hash}
+    - `test_is_inside_container_*` - env var detection tests
+
+- [x] Add Docker E2E integration tests (refs: specs/docker-ux.md §10.6)
+  - Dependencies: Unit tests complete
+  - Complexity: medium
+  - File: `tests/docker_e2e.rs` (new)
+  - Tests (marked `#[ignore]` - require Docker):
+    - `test_docker_image_builds_successfully` - builds minimal image
+    - `test_container_detects_fresher_in_docker_env` - env var passed
+    - `test_fresher_binary_mount_works` - mounted binary executes
+    - `test_preset_rust_installs_cargo` - rust preset has cargo
+
+- [x] Update CI/CD for Docker E2E tests (refs: specs/docker-ux.md §10.8)
+  - Dependencies: E2E tests complete
+  - Complexity: low
+  - File: `.github/workflows/test.yml`
+  - Implementation:
+    - Add `docker-e2e` job that runs on ubuntu-latest
+    - Build fresher with `cargo build --release`
+    - Run `cargo test --test docker_e2e -- --ignored`
+
+---
+
 ## Future Work (Potential Enhancements)
 
 The following items are potential future enhancements, not currently scheduled:
@@ -656,7 +734,6 @@ The following items are potential future enhancements, not currently scheduled:
 
 ### Testing
 
-- [ ] Add Docker integration tests
-  - Test auto-orchestration with mock Docker
-  - Test preset image building
-  - Complexity: medium
+- [x] ~~Add Docker integration tests~~ (Completed in Priority 14)
+  - Docker unit tests in `tests/docker.rs`
+  - Docker E2E tests in `tests/docker_e2e.rs`

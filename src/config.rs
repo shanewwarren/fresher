@@ -54,6 +54,10 @@ pub struct DockerConfig {
     /// Optional custom setup script path (relative to .fresher/)
     #[serde(default)]
     pub setup_script: Option<String>,
+    /// Path to local fresher binary (for development)
+    /// When set, mounts this binary instead of installing from GitHub
+    #[serde(default)]
+    pub local_binary: Option<String>,
 }
 
 impl Default for Config {
@@ -87,6 +91,7 @@ impl Default for Config {
                 cpus: "2".to_string(),
                 presets: Vec::new(),
                 setup_script: None,
+                local_binary: None,
             },
         }
     }
@@ -191,6 +196,9 @@ impl Config {
         }
         if let Ok(val) = env::var("FRESHER_DOCKER_SETUP_SCRIPT") {
             self.docker.setup_script = Some(val);
+        }
+        if let Ok(val) = env::var("FRESHER_DOCKER_LOCAL_BINARY") {
+            self.docker.local_binary = Some(val);
         }
     }
 
@@ -343,6 +351,7 @@ mod tests {
         assert_eq!(config.docker.cpus, "2");
         assert!(config.docker.presets.is_empty());
         assert!(config.docker.setup_script.is_none());
+        assert!(config.docker.local_binary.is_none());
     }
 
     #[test]
@@ -441,6 +450,21 @@ mod tests {
         );
 
         env::remove_var("FRESHER_DOCKER_SETUP_SCRIPT");
+    }
+
+    #[test]
+    fn test_env_override_docker_local_binary() {
+        let mut config = Config::default();
+
+        env::set_var("FRESHER_DOCKER_LOCAL_BINARY", "./target/release/fresher");
+        config.apply_env_overrides();
+
+        assert_eq!(
+            config.docker.local_binary,
+            Some("./target/release/fresher".to_string())
+        );
+
+        env::remove_var("FRESHER_DOCKER_LOCAL_BINARY");
     }
 
     #[test]

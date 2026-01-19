@@ -187,6 +187,7 @@ mod tests {
                 cpus: "2".to_string(),
                 presets: Vec::new(),
                 setup_script: None,
+                local_binary: None,
             },
         }
     }
