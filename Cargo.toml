@@ -1,6 +1,6 @@
 [package]
 name = "fresher"
-version = "2.2.4"
+version = "2.2.5"
 edition = "2021"
 description = "A portable Ralph Loop implementation for AI-driven iterative development"
 license = "MIT"
