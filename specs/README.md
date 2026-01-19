@@ -21,6 +21,7 @@ Fresher implements the Ralph Loop methodology - an iterative execution model wit
 | [loop-executor.md](./loop-executor.md) | **Implemented** | Loop execution via `fresher plan` and `fresher build` commands (`src/commands/plan.rs`, `build.rs`) |
 | [prompt-templates.md](./prompt-templates.md) | **Implemented** | PROMPT.md files for PLANNING and BUILDING modes (`src/templates.rs`) |
 | [project-scaffold.md](./project-scaffold.md) | **Implemented** | `fresher init` command with project detection (`src/commands/init.rs`) |
+| [impl-structure.md](./impl-structure.md) | **Planned** | Hierarchical implementation plans with `impl/` directory for context efficiency |
 
 ## Verification & Quality
 
