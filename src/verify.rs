@@ -167,6 +167,9 @@ pub fn count_tasks(tasks: &[Task]) -> (usize, usize, usize, usize) {
 }
 
 /// Check if there are pending tasks
+/// Supports two formats:
+/// 1. Standard checkboxes: `- [ ]` (pending) vs `- [x]` (complete)
+/// 2. Section headers: `### 1.1 Task Name` (pending) vs `### 1.1 Task Name ✅` (complete)
 pub fn has_pending_tasks(plan_path: &Path) -> bool {
     if !plan_path.exists() {
         return false;
@@ -174,8 +177,18 @@ pub fn has_pending_tasks(plan_path: &Path) -> bool {
 
     match fs::read_to_string(plan_path) {
         Ok(content) => {
+            // Standard checkbox format: - [ ] task
             let checkbox_re = Regex::new(r"^\s*-\s*\[\s\]").unwrap();
-            content.lines().any(|line| checkbox_re.is_match(line))
+            if content.lines().any(|line| checkbox_re.is_match(line)) {
+                return true;
+            }
+
+            // Section header format: ### X.X Task Name (without ✅)
+            // Match headers like "### 1.2 Create project structure" but not "### 1.1 Done ✅"
+            let header_re = Regex::new(r"^###\s+\d+\.\d+\s+.+$").unwrap();
+            content.lines().any(|line| {
+                header_re.is_match(line) && !line.contains('✅') && !line.contains("✓")
+            })
         }
         Err(_) => false,
     }
@@ -523,6 +536,40 @@ mod tests {
     fn test_has_pending_tasks_missing_file() {
         let path = Path::new("/nonexistent/path/plan.md");
         assert!(!has_pending_tasks(path));
+    }
+
+    #[test]
+    fn test_has_pending_tasks_section_header_format() {
+        // Section header without ✅ = pending
+        let content = "### 1.2 Create project structure";
+        let (_dir, path) = create_temp_plan(content);
+        assert!(has_pending_tasks(&path));
+    }
+
+    #[test]
+    fn test_has_pending_tasks_section_header_complete() {
+        // Section header with ✅ = complete
+        let content = "### 1.1 Create Cargo.toml ✅";
+        let (_dir, path) = create_temp_plan(content);
+        assert!(!has_pending_tasks(&path));
+    }
+
+    #[test]
+    fn test_has_pending_tasks_mixed_section_headers() {
+        // Mix of complete and pending section headers
+        let content = r#"### 1.1 Create Cargo.toml ✅
+### 1.2 Create project structure
+### 1.3 Implement error types"#;
+        let (_dir, path) = create_temp_plan(content);
+        assert!(has_pending_tasks(&path));
+    }
+
+    #[test]
+    fn test_has_pending_tasks_all_section_headers_complete() {
+        let content = r#"### 1.1 Create Cargo.toml ✅
+### 1.2 Create project structure ✅"#;
+        let (_dir, path) = create_temp_plan(content);
+        assert!(!has_pending_tasks(&path));
     }
 
     #[test]
