@@ -6,13 +6,11 @@ Design documentation for a portable Ralph Loop implementation that enables AI-dr
 
 Fresher implements the Ralph Loop methodology - an iterative execution model with two modes (PLANNING and BUILDING) that uses fresh context each iteration, enabling specification-driven development with AI assistance.
 
-> **Note:** Fresher was rewritten from Bash to Rust in v2.0.0 for single-binary distribution. Some specs still reference the original Bash architecture and need updating.
+> **Note:** Fresher was rewritten from Bash to Rust in v2.0.0 for single-binary distribution. All specs have been updated for the Rust architecture.
 
 **Status Legend:**
-- **Planned** - Design complete, not yet implemented
-- **In Progress** - Currently being implemented
 - **Implemented** - Feature complete (Rust)
-- **Needs Update** - Implemented but spec describes old Bash architecture
+- **Planned** - Design complete, not yet implemented
 
 ---
 
@@ -20,32 +18,32 @@ Fresher implements the Ralph Loop methodology - an iterative execution model wit
 
 | Spec | Status | Purpose |
 |------|--------|---------|
-| [loop-executor.md](./loop-executor.md) | **Needs Update** | Loop execution via `fresher plan` and `fresher build` commands (Rust: commands/plan.rs, build.rs) |
-| [prompt-templates.md](./prompt-templates.md) | **Implemented** | PROMPT.md files for PLANNING and BUILDING modes (Rust: templates.rs) |
-| [project-scaffold.md](./project-scaffold.md) | **Needs Update** | `fresher init` command with project detection (Rust: commands/init.rs) |
+| [loop-executor.md](./loop-executor.md) | **Implemented** | Loop execution via `fresher plan` and `fresher build` commands (`src/commands/plan.rs`, `build.rs`) |
+| [prompt-templates.md](./prompt-templates.md) | **Implemented** | PROMPT.md files for PLANNING and BUILDING modes (`src/templates.rs`) |
+| [project-scaffold.md](./project-scaffold.md) | **Implemented** | `fresher init` command with project detection (`src/commands/init.rs`) |
 
 ## Verification & Quality
 
 | Spec | Status | Purpose |
 |------|--------|---------|
-| [plan-verification.md](./plan-verification.md) | **Needs Update** | `fresher verify` command for spec coverage analysis (Rust: verify.rs) |
-| [self-testing.md](./self-testing.md) | Planned | Test scenarios to verify the loop works correctly |
+| [plan-verification.md](./plan-verification.md) | **Implemented** | `fresher verify` command for spec coverage analysis (`src/verify.rs`) |
+| [self-testing.md](./self-testing.md) | **Implemented** | 77 unit tests + 46 integration tests (`tests/*.rs`) |
 
 ## Extensibility
 
 | Spec | Status | Purpose |
 |------|--------|---------|
-| [lifecycle-hooks.md](./lifecycle-hooks.md) | **Implemented** | Bash hooks with timeout, exit codes, env vars (Rust: hooks.rs) |
-| [docker-isolation.md](./docker-isolation.md) | In Progress | Config exists, execution not yet wired up |
-| [docker-ux.md](./docker-ux.md) | Planned | Auto-orchestration, streaming output, dependency presets |
+| [lifecycle-hooks.md](./lifecycle-hooks.md) | **Implemented** | Bash hooks with timeout, exit codes, env vars (`src/hooks.rs`) |
+| [docker-isolation.md](./docker-isolation.md) | **Implemented** | Container detection, devcontainer support (`src/docker.rs`) |
+| [docker-ux.md](./docker-ux.md) | **Implemented** | Auto-orchestration, streaming output, dependency presets (`src/docker.rs`) |
 
 ## Distribution & Usage
 
 | Spec | Status | Purpose |
 |------|--------|---------|
-| [installer.md](./installer.md) | **Needs Update** | `fresher upgrade` command for self-update from GitHub (Rust: upgrade.rs) |
+| [installer.md](./installer.md) | **Implemented** | `fresher upgrade` command for self-update from GitHub (`src/upgrade.rs`) |
 | [project-integration.md](./project-integration.md) | **Implemented** | Part of `fresher init` - gitignore, project detection, CLAUDE.md |
-| [documentation.md](./documentation.md) | Planned | Comprehensive README with install, modes, hooks, config, troubleshooting |
+| [documentation.md](./documentation.md) | **Implemented** | Comprehensive README with install, modes, hooks, config, troubleshooting |
 
 ---
 

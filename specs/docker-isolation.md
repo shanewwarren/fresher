@@ -1,8 +1,9 @@
 # Docker Isolation Specification
 
-**Status:** Planned
+**Status:** Implemented
 **Version:** 2.1
 **Last Updated:** 2026-01-18
+**Implementation:** `src/docker.rs` (container detection, auto-orchestration, compose generation)
 
 ---
 

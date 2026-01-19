@@ -1,8 +1,9 @@
 # Docker UX Specification
 
-**Status:** Planned
+**Status:** Implemented
 **Version:** 1.0
-**Last Updated:** 2025-01-18
+**Last Updated:** 2026-01-18
+**Implementation:** `src/docker.rs` (run_in_container, presets, image caching, streaming output)
 
 ---
 
